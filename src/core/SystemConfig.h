@@ -63,6 +63,10 @@ struct SystemConfig {
     // is registered with Task Scheduler at logon and respawns VKey on crash.
     bool watchdogEnabled = false;
 
+    // Browser extension integration — opt-in. When true, native-messaging
+    // manifests are registered for Chrome, Edge, Firefox, etc.
+    bool browserExtensionEnabled = false;
+
     /// Get effective V color (default if custom not set)
     [[nodiscard]] uint32_t GetEffectiveColorV() const noexcept {
         return customColorV != 0 ? customColorV : DEFAULT_ICON_COLOR_V;

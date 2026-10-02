@@ -40,7 +40,11 @@ param(
     # -Debug itself is a PowerShell common parameter and cannot be redefined.
     [switch]$DebugBuild,
     # -Verbose is a common parameter too, hence the name.
-    [switch]$FullLog
+    [switch]$FullLog,
+    # Manual build switches to exclude optional extensions for testing
+    [switch]$NoBrowser,
+    [switch]$NoWatchdog,
+    [switch]$NoExtensions
 )
 
 $ErrorActionPreference = "Stop"
@@ -159,8 +163,16 @@ if ($mode -eq "local") {
         $liteTarget = @("--target", "VKeyLite")
     }
 
+    $extConfigure = @()
+    if ($NoBrowser -or $NoExtensions) {
+        $extConfigure += "-DVKEY_BUILD_BROWSER_HOST=OFF"
+    }
+    if ($NoWatchdog -or $NoExtensions) {
+        $extConfigure += "-DVKEY_BUILD_WATCHDOG=OFF"
+    }
+
     Write-Host "[3/4] configure" -ForegroundColor Yellow
-    cmake -S $root -B $buildDir -G "Visual Studio 18 2026" -A x64 @engineConfigure @liteConfigure @cmakeQuiet
+    cmake -S $root -B $buildDir -G "Visual Studio 18 2026" -A x64 @engineConfigure @liteConfigure @extConfigure @cmakeQuiet
     if ($LASTEXITCODE -ne 0) { Fail "configure failed" }
 
     # Debug serves the Sciter UI from ui/ next to the exe instead of the

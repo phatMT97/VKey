@@ -4,6 +4,7 @@
 #include "Registration.h"
 
 #include "core/config/ConfigManager.h"
+#include "core/security/ExtensionTrust.h"
 
 #include <Windows.h>
 
@@ -79,6 +80,25 @@ bool SetManifestRegistryPath(std::wstring_view vendorPath,
     return ok;
 }
 
+bool DeleteManifestRegistryPath(std::wstring_view vendorPath) noexcept {
+    std::wstring key(vendorPath);
+    key += L"\\";
+    key += kHostName;
+    return RegDeleteKeyW(HKEY_CURRENT_USER, key.c_str()) == ERROR_SUCCESS;
+}
+
+bool CheckManifestRegistryPath(std::wstring_view vendorPath) noexcept {
+    std::wstring key(vendorPath);
+    key += L"\\";
+    key += kHostName;
+    HKEY handle = nullptr;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, key.c_str(), 0, KEY_READ, &handle) == ERROR_SUCCESS) {
+        RegCloseKey(handle);
+        return true;
+    }
+    return false;
+}
+
 } // namespace
 
 bool RegisterNativeMessagingHost() noexcept {
@@ -87,6 +107,9 @@ bool RegisterNativeMessagingHost() noexcept {
         if (moduleDir.empty()) return false;
         const std::wstring hostPath = moduleDir + L"\\VKeyBrowserHost.exe";
         if (GetFileAttributesW(hostPath.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
+
+        // Security gate: verify binary integrity and signature before registering
+        if (!Security::IsExtensionTrusted(hostPath)) return false;
 
         const std::wstring root = ConfigManager::GetAppDataDirectory()
             + L"\\native-messaging";
@@ -128,6 +151,32 @@ bool RegisterNativeMessagingHost() noexcept {
     } catch (...) {
         return false;
     }
+}
+
+bool UnregisterNativeMessagingHost() noexcept {
+    try {
+        bool unregistered = false;
+        unregistered |= DeleteManifestRegistryPath(L"Software\\Google\\Chrome\\NativeMessagingHosts");
+        unregistered |= DeleteManifestRegistryPath(L"Software\\Microsoft\\Edge\\NativeMessagingHosts");
+        unregistered |= DeleteManifestRegistryPath(L"Software\\BraveSoftware\\Brave-Browser\\NativeMessagingHosts");
+        unregistered |= DeleteManifestRegistryPath(L"Software\\Vivaldi\\NativeMessagingHosts");
+        unregistered |= DeleteManifestRegistryPath(L"Software\\Opera Software\\NativeMessagingHosts");
+        unregistered |= DeleteManifestRegistryPath(L"Software\\Mozilla\\NativeMessagingHosts");
+
+        const std::wstring root = ConfigManager::GetAppDataDirectory() + L"\\native-messaging";
+        DeleteFileW((root + L"\\vkey-browser-chromium.json").c_str());
+        DeleteFileW((root + L"\\vkey-browser-firefox.json").c_str());
+        return unregistered;
+    } catch (...) {
+        return false;
+    }
+}
+
+bool IsNativeMessagingHostRegistered() noexcept {
+    return CheckManifestRegistryPath(L"Software\\Google\\Chrome\\NativeMessagingHosts")
+        || CheckManifestRegistryPath(L"Software\\Microsoft\\Edge\\NativeMessagingHosts")
+        || CheckManifestRegistryPath(L"Software\\BraveSoftware\\Brave-Browser\\NativeMessagingHosts")
+        || CheckManifestRegistryPath(L"Software\\Mozilla\\NativeMessagingHosts");
 }
 
 } // namespace NextKey::BrowserHost

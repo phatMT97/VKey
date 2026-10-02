@@ -379,19 +379,26 @@ jobs:
             New-Item -ItemType Directory -Force -Path dist
             Copy-Item "sciter-binaries/VKey.exe" "dist/" -Force
             Copy-Item "sciter-binaries/VKeyTSF.dll" "dist/" -Force
-            Copy-Item "sciter-binaries/VKeyWatchdog.exe" "dist/" -Force
-            Copy-Item "sciter-binaries/VKeyBrowserHost.exe" "dist/" -Force
             Copy-Item "sciter-binaries/sciter.dll" "dist/" -Force
             # Required: Sciter.JS is BSD 3-Clause, whose clause 2 makes the
             # notice a condition of binary redistribution. It has to be inside
             # the archive, not only in the source repo.
             Copy-Item "THIRD_PARTY_NOTICES.txt" "dist/" -Force
+
+            # Extensions are staged outside the zip archive
+            Copy-Item "sciter-binaries/VKeyWatchdog.exe" "." -Force
+            Copy-Item "sciter-binaries/VKeyBrowserHost.exe" "." -Force
+
             if ("${{ startsWith(github.ref, 'refs/tags/') }}" -eq "true" -or "${{ needs.build-classic.result }}" -eq "success") {
               New-Item -ItemType Directory -Force -Path upload-payload/sciter
               Copy-Item "dist/*" "upload-payload/sciter/" -Force
+              Copy-Item "VKeyWatchdog.exe" "upload-payload/sciter/" -Force
+              Copy-Item "VKeyBrowserHost.exe" "upload-payload/sciter/" -Force
             }
             else {
               Copy-Item "dist/*" "upload-payload/" -Force
+              Copy-Item "VKeyWatchdog.exe" "upload-payload/" -Force
+              Copy-Item "VKeyBrowserHost.exe" "upload-payload/" -Force
             }
           }
           
@@ -403,8 +410,6 @@ jobs:
             # This TSF DLL comes from the Rust-OFF Classic tree; never reuse the
             # same-named Rust-enabled DLL produced by the Sciter job.
             Copy-Item "classic-binaries/VKeyTSF.dll" "dist-classic/" -Force
-            Copy-Item "classic-binaries/VKeyWatchdog.exe" "dist-classic/" -Force
-            Copy-Item "classic-binaries/VKeyBrowserHost.exe" "dist-classic/" -Force
             Copy-Item "THIRD_PARTY_NOTICES.txt" "dist-classic/" -Force
             if ("${{ github.event_name }}" -eq "workflow_dispatch" -and "${{ inputs.classic_rust }}" -eq "true") {
               Copy-Item "classic-binaries/vkey_engine.dll" "dist-classic/" -Force
@@ -415,10 +420,14 @@ jobs:
             # It is always an unsigned test artifact and never a release input.
             if ("${{ needs.build-sciter.result }}" -ne "success") {
               Copy-Item "dist-classic/*" "upload-payload/" -Force
+              Copy-Item "classic-binaries/VKeyWatchdog.exe" "upload-payload/" -Force
+              Copy-Item "classic-binaries/VKeyBrowserHost.exe" "upload-payload/" -Force
             }
             else {
               New-Item -ItemType Directory -Force -Path upload-payload/classic
               Copy-Item "dist-classic/*" "upload-payload/classic/" -Force
+              Copy-Item "classic-binaries/VKeyWatchdog.exe" "upload-payload/classic/" -Force
+              Copy-Item "classic-binaries/VKeyBrowserHost.exe" "upload-payload/classic/" -Force
             }
           }
 
@@ -426,7 +435,7 @@ jobs:
         shell: powershell
         run: |
           if ("${{ needs.build-sciter.result }}" -eq "success") {
-            foreach ($path in @("dist/VKey.exe", "dist/VKeyTSF.dll", "dist/VKeyWatchdog.exe", "dist/VKeyBrowserHost.exe")) {
+            foreach ($path in @("dist/VKey.exe", "dist/VKeyTSF.dll", "VKeyWatchdog.exe", "VKeyBrowserHost.exe")) {
               $signature = Get-AuthenticodeSignature $path
               if ($signature.Status -ne "NotSigned") {
                 throw "Sciter-owned binary must remain unsigned: $path ($($signature.Status))"
@@ -537,9 +546,7 @@ jobs:
           $expected = @(
             "THIRD_PARTY_NOTICES.txt",
             "VKey.exe",
-            "VKeyBrowserHost.exe",
             "VKeyTSF.dll",
-            "VKeyWatchdog.exe",
             "sciter.dll"
           ) | Sort-Object
           $actual = @(
@@ -551,7 +558,7 @@ jobs:
           if ($directories.Count -ne 0 -or (Compare-Object $expected $actual)) {
             $directories.FullName | Write-Output
             $actual | Write-Output
-            throw "Sciter release package differs from the six-file allowlist"
+            throw "Sciter release package differs from the four-file allowlist"
           }
           Compress-Archive -Path "dist/*" -DestinationPath VKey.zip
           Copy-Item VKey.zip VKey-x64.zip -Force
@@ -567,6 +574,8 @@ jobs:
           if ("${{ needs.build-sciter.result }}" -eq "success") {
             $files += "VKey.zip"
             $files += "VKey-x64.zip"
+            $files += "VKeyBrowserHost.exe"
+            $files += "VKeyWatchdog.exe"
           }
           $files += "vkey_engine.dll"
           $files += "vkey_engine.dll.sig"
@@ -587,6 +596,10 @@ jobs:
             VKey.zip.sha256
             VKey-x64.zip
             VKey-x64.zip.sha256
+            VKeyBrowserHost.exe
+            VKeyBrowserHost.exe.sha256
+            VKeyWatchdog.exe
+            VKeyWatchdog.exe.sha256
             vkey_engine.dll
             vkey_engine.dll.sha256
             vkey_engine.dll.sig
@@ -683,6 +696,10 @@ jobs:
             "VKey.zip.sha256",
             "VKey-x64.zip",
             "VKey-x64.zip.sha256",
+            "VKeyBrowserHost.exe",
+            "VKeyBrowserHost.exe.sha256",
+            "VKeyWatchdog.exe",
+            "VKeyWatchdog.exe.sha256",
             "vkey_engine.dll",
             "vkey_engine.dll.sha256",
             "vkey_engine.dll.sig",
@@ -698,12 +715,14 @@ jobs:
           if ($directories.Count -ne 0 -or (Compare-Object $expected $actual)) {
             $directories.FullName | Write-Output
             $actual | Write-Output
-            throw "Standard release artifact differs from the ten-file allowlist"
+            throw "Standard release artifact differs from the fourteen-file allowlist"
           }
 
           foreach ($name in @(
             "VKey.zip",
             "VKey-x64.zip",
+            "VKeyBrowserHost.exe",
+            "VKeyWatchdog.exe",
             "vkey_engine.dll",
             "vkey_engine.dll.sig"
           )) {
@@ -723,9 +742,7 @@ jobs:
           $expectedEntries = @(
             "THIRD_PARTY_NOTICES.txt",
             "VKey.exe",
-            "VKeyBrowserHost.exe",
             "VKeyTSF.dll",
-            "VKeyWatchdog.exe",
             "sciter.dll"
           ) | Sort-Object
           foreach ($archiveName in @("VKey.zip", "VKey-x64.zip")) {
@@ -739,7 +756,7 @@ jobs:
               )
               if (Compare-Object $expectedEntries $entries) {
                 $entries | Write-Output
-                throw "$archiveName differs from the six-file package allowlist"
+                throw "$archiveName differs from the four-file package allowlist"
               }
             }
             finally {

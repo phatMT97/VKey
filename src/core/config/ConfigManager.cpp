@@ -1197,6 +1197,7 @@ std::optional<SystemConfig> ConfigManager::LoadSystemConfig(const std::wstring& 
             config.startupMode = static_cast<uint8_t>((*system)["startup_mode"].value_or(0));
             config.forceLightTheme = (*system)["force_light_theme"].value_or(false);
             config.watchdogEnabled = (*system)["watchdog_enabled"].value_or(false);
+            config.browserExtensionEnabled = (*system)["browser_extension_enabled"].value_or(false);
         }
 
         return config;
@@ -1228,6 +1229,7 @@ bool ConfigManager::SaveSystemConfig(const std::wstring& path, const SystemConfi
         system.insert_or_assign("startup_mode", static_cast<int64_t>(config.startupMode));
         system.insert_or_assign("force_light_theme", config.forceLightTheme);
         system.insert_or_assign("watchdog_enabled", config.watchdogEnabled);
+        system.insert_or_assign("browser_extension_enabled", config.browserExtensionEnabled);
         tbl.insert_or_assign("system", std::move(system));
 
         return WriteToml(utf8Path, tbl);

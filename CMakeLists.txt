@@ -127,6 +127,10 @@ option(VKEY_ALLOW_UNSIGNED_LOCAL_ENGINE
     "Allow a Release development build to trust the exact engine.lock hash" OFF)
 option(VKEY_CLASSIC_ALLOW_RUST_ENGINE_FOR_DEV
     "Allow a manual, non-release Classic development build to use the Rust engine" OFF)
+option(VKEY_BUILD_BROWSER_HOST "Build VKeyBrowserHost companion executable" ON)
+option(VKEY_BUILD_WATCHDOG "Build VKeyWatchdog process supervisor" ON)
+option(VKEY_ALLOW_UNSIGNED_EXTENSIONS
+    "Allow running unsigned extensions in development builds" OFF)
 option(VKEY_FOUNDATION_BUILD
     "Build only the GPL-3.0 VKeyClassic targets approved for Foundation signing" OFF)
 if(VKEY_FOUNDATION_BUILD)
@@ -161,6 +165,9 @@ endif()
 if(VKEY_ALLOW_UNSIGNED_LOCAL_ENGINE AND NOT VKEY_USE_RUST_ENGINE)
     message(FATAL_ERROR
         "VKEY_ALLOW_UNSIGNED_LOCAL_ENGINE=ON requires VKEY_USE_RUST_ENGINE=ON")
+endif()
+if(VKEY_ALLOW_UNSIGNED_EXTENSIONS)
+    add_compile_definitions(VKEY_ALLOW_UNSIGNED_EXTENSIONS)
 endif()
 if(VKEY_USE_RUST_ENGINE)
     # Overridable so the libraries need not be committed: tools/fetch_engine.py
@@ -352,6 +359,8 @@ set(NEXTKEY_CORE_SOURCES
     src/core/ipc/LexiconWireFormat.cpp
     src/core/ipc/LexiconWireManager.h
     src/core/ipc/LexiconWireManager.cpp
+    src/core/security/ExtensionTrust.h
+    src/core/security/ExtensionTrust.cpp
 )
 
 # Windows-only sources (require Windows.h)
@@ -435,7 +444,7 @@ if(VKEY_USE_RUST_ENGINE)
     target_compile_definitions(VKeyTSF PRIVATE VKEY_USE_RUST_ENGINE)
 endif()
 
-if(WIN32 AND NOT VKEY_FOUNDATION_BUILD)
+if(WIN32 AND NOT VKEY_FOUNDATION_BUILD AND VKEY_BUILD_BROWSER_HOST)
     add_executable(VKeyBrowserHost
         src/browser_host/main.cpp
         src/browser_host/NativeMessaging.cpp
@@ -500,6 +509,8 @@ add_executable(VKeyApp WIN32
     src/app/system/HeartbeatPublisher.cpp
     src/app/system/WatchdogController.h
     src/app/system/WatchdogController.cpp
+    src/app/system/BrowserExtensionController.h
+    src/app/system/BrowserExtensionController.cpp
     src/app/system/MainThreadWorker.h
     src/app/system/MainThreadWorker.cpp
     src/app/system/HotkeyManager.h
@@ -514,6 +525,8 @@ add_executable(VKeyApp WIN32
     src/app/system/UpdateChecker.cpp
     src/app/system/UpdateInstaller.h
     src/app/system/UpdateInstaller.cpp
+    src/app/system/ExtensionInstaller.h
+    src/app/system/ExtensionInstaller.cpp
     src/app/system/UpdateSecurity.h
     src/app/system/UpdateSecurity.cpp
     src/app/system/PendingDllApply.h
@@ -611,6 +624,8 @@ if(VKEY_LITE_MODE AND WIN32)
         src/app/system/HeartbeatPublisher.cpp
         src/app/system/WatchdogController.h
         src/app/system/WatchdogController.cpp
+        src/app/system/BrowserExtensionController.h
+        src/app/system/BrowserExtensionController.cpp
         src/app/system/MainThreadWorker.h
         src/app/system/MainThreadWorker.cpp
         src/app/system/HotkeyManager.h
@@ -625,6 +640,8 @@ if(VKEY_LITE_MODE AND WIN32)
         src/app/system/UpdateChecker.cpp
         src/app/system/UpdateInstaller.h
         src/app/system/UpdateInstaller.cpp
+        src/app/system/ExtensionInstaller.h
+        src/app/system/ExtensionInstaller.cpp
         src/app/system/UpdateSecurity.h
         src/app/system/UpdateSecurity.cpp
         src/app/system/PendingDllApply.h
@@ -1074,4 +1091,6 @@ endif()
 # Watchdog — standalone Windows-only process supervisor (VKeyWatchdog.exe)
 # (sub-CMakeLists return()s on non-WIN32)
 # ============================================================================
-add_subdirectory(src/watchdog)
+if(VKEY_BUILD_WATCHDOG)
+    add_subdirectory(src/watchdog)
+endif()

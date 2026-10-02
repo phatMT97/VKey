@@ -488,9 +488,21 @@ void TrayIcon::ShowContextMenu() {
     AppendMenuW(hMenu, MF_STRING,
         static_cast<UINT>(TrayMenuId::About), S(StringId::MENU_ABOUT));
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING,
-        static_cast<UINT>(TrayMenuId::ToggleWatchdog),
-        S(state.watchdogEnabled ? StringId::MENU_STOP_WATCHDOG : StringId::MENU_ENABLE_WATCHDOG));
+
+    // ── Extensions submenu ──
+    HMENU hExtMenu = CreatePopupMenu();
+    if (hExtMenu) {
+        UINT flagsBrowser = MF_STRING | (state.browserEnabled ? MF_CHECKED : 0);
+        AppendMenuW(hExtMenu, flagsBrowser,
+            static_cast<UINT>(TrayMenuId::ExtensionBrowser), S(StringId::MENU_EXT_BROWSER));
+
+        UINT flagsWatchdog = MF_STRING | (state.watchdogEnabled ? MF_CHECKED : 0);
+        AppendMenuW(hExtMenu, flagsWatchdog,
+            static_cast<UINT>(TrayMenuId::ExtensionWatchdog), S(StringId::MENU_EXT_WATCHDOG));
+
+        AppendMenuW(hMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(hExtMenu), S(StringId::MENU_EXTENSIONS));
+    }
+
     AppendMenuW(hMenu, MF_STRING,
         static_cast<UINT>(TrayMenuId::Exit), S(StringId::MENU_EXIT));
 

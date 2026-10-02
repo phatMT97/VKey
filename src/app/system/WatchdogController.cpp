@@ -9,7 +9,9 @@
 #include "core/Strings.h"
 #include "core/Debug.h"
 #include "core/config/ConfigManager.h"
+#include "core/security/ExtensionTrust.h"
 #include "system/StartupHelper.h"
+#include "system/ExtensionInstaller.h"
 
 #include <string>
 
@@ -56,6 +58,11 @@ void WatchdogController::Toggle(HWND notifyHwnd) {
                     S(StringId::WATCHDOG_STOPPED_BODY),
                     kAppTitle, MB_OK | MB_ICONINFORMATION);
     } else {
+        // Ensure VKeyWatchdog.exe is installed and verified
+        if (!ExtensionInstaller::EnsureInstalledWithUi(ExtensionType::Watchdog, notifyHwnd)) {
+            return;
+        }
+
         // Task Scheduler register prompts UAC. If user denies, leave the
         // config flag false (menu still reads "Bật…") and bail.
         if (!CreateWatchdogScheduledTask()) {
@@ -89,6 +96,11 @@ void WatchdogController::LaunchWatchdogProcess() noexcept {
         return;
     }
     std::wstring wdPath = dir + L"\\VKeyWatchdog.exe";
+    if (!Security::IsExtensionTrusted(wdPath)) {
+        NEXTKEY_LOG(L"LaunchWatchdogProcess: untrusted or invalid binary at %ls — aborted",
+                    wdPath.c_str());
+        return;
+    }
 
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi = {};

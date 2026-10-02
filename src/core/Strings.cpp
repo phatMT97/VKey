@@ -25,6 +25,9 @@ static const wchar_t* const kVietnamese[] = {
     L"Thoát",                                        // MENU_EXIT
     L"Tắt tự khởi động lại",                         // MENU_STOP_WATCHDOG
     L"Bật tự khởi động lại",                         // MENU_ENABLE_WATCHDOG
+    L"Tiện ích mở rộng",                             // MENU_EXTENSIONS
+    L"Hỗ trợ trình duyệt (Browser Host)",            // MENU_EXT_BROWSER
+    L"Tự khởi động lại khi crash (Watchdog)",        // MENU_EXT_WATCHDOG
     L"VKey - Tiếng Việt",                        // TIP_VIETNAMESE
     L"VKey - English",                            // TIP_ENGLISH
     L"Giới thiệu VKey",                          // ABOUT_TITLE
@@ -71,6 +74,8 @@ static const wchar_t* const kVietnamese[] = {
     L"Vui lòng thoát và khởi động lại VKey thủ công.",
     L"Đã tắt tự khởi động lại. VKey sẽ không tự bật lại nếu thoát đột ngột.", // WATCHDOG_STOPPED_BODY
     L"Đã bật tự khởi động lại. VKey sẽ tự bật lại nếu thoát đột ngột.", // WATCHDOG_ENABLED_BODY
+    L"Đã tắt tiện ích Hỗ trợ trình duyệt (Browser Host).", // BROWSER_EXT_STOPPED_BODY
+    L"Đã bật tiện ích Hỗ trợ trình duyệt (Browser Host).\nCác trình duyệt được hỗ trợ sẽ tự động kết nối với VKey.", // BROWSER_EXT_ENABLED_BODY
     L"Cấu hình hiện tại đã được sao lưu thành công tại:\n%s\n\nỨng dụng sẽ tự động đóng để tiến hành cập nhật.", // UPDATE_BACKUP_SUCCESS
     L"Cần VKey Engine",                              // SPELL_ADVANCED_REQUIRED_TITLE
     L"Chế độ Nâng cao cần vkey_engine.dll đúng phiên bản. VKey luôn kiểm tra tính toàn vẹn của file trước khi nạp.", // SPELL_ADVANCED_DOWNLOAD_PROMPT
@@ -113,6 +118,9 @@ static const wchar_t* const kEnglish[] = {
     L"Exit",                                          // MENU_EXIT
     L"Stop auto-restart",                             // MENU_STOP_WATCHDOG
     L"Enable auto-restart",                           // MENU_ENABLE_WATCHDOG
+    L"Extensions",                                    // MENU_EXTENSIONS
+    L"Browser Integration (Browser Host)",            // MENU_EXT_BROWSER
+    L"Auto-restart on crash (Watchdog)",              // MENU_EXT_WATCHDOG
     L"VKey - Vietnamese",                         // TIP_VIETNAMESE
     L"VKey - English",                            // TIP_ENGLISH
     L"About VKey",                                // ABOUT_TITLE
@@ -159,6 +167,8 @@ static const wchar_t* const kEnglish[] = {
     L"Please exit and relaunch VKey manually.",
     L"Auto-restart stopped. VKey will not relaunch on crash.", // WATCHDOG_STOPPED_BODY
     L"Auto-restart enabled. VKey will relaunch on crash.", // WATCHDOG_ENABLED_BODY
+    L"Browser Integration (Browser Host) disabled.", // BROWSER_EXT_STOPPED_BODY
+    L"Browser Integration (Browser Host) enabled.\nSupported browsers will automatically connect to VKey.", // BROWSER_EXT_ENABLED_BODY
     L"Your current configuration has been backed up at:\n%s\n\nThe application will automatically close to perform the update.", // UPDATE_BACKUP_SUCCESS
     L"VKey Engine required",                         // SPELL_ADVANCED_REQUIRED_TITLE
     L"Advanced mode requires the correct version of vkey_engine.dll. VKey always verifies the file's integrity before loading it.", // SPELL_ADVANCED_DOWNLOAD_PROMPT

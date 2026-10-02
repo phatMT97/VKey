@@ -82,6 +82,16 @@ IME cục bộ trên Windows cá nhân. Kẻ tấn công chính: phần mềm đ
 | **Focus isolation** | Chuyển app → xóa buffer, commit/discard composition. Không leak keystroke qua ranh giới ứng dụng |
 | **Bounded buffers** | Input buffer có giới hạn, macro expansion bounded bởi config limits |
 
+## 9. Extensions & Companion Binaries (Tiện ích mở rộng)
+
+| Biện pháp | Mô tả |
+|-----------|-------|
+| **Tách rời khỏi gói Release tiêu chuẩn** | Các tiện ích mở rộng (`VKeyWatchdog.exe` - tự khởi động lại khi crash, và `VKeyBrowserHost.exe` - giao tiếp tiện ích trình duyệt) được tách hoàn toàn khỏi file ZIP release chính thức. Chúng tồn tại dưới dạng asset độc lập trên GitHub Releases. Chỉ khi người dùng chủ động bật trong menu chuột phải `Tiện ích mở rộng`, VKey mới kiểm tra hoặc tải về theo nhu cầu thực tế |
+| **Chống giả mạo qua Chữ ký số Authenticode (Anti-Tamper PE Verification)** | Để chống nguy cơ kẻ xấu fork mã nguồn mở của VKey, chèn mã độc vào file tiện ích rồi tiêm/ghi đè file `.exe` vào thư mục ứng dụng, VKey kiểm tra chữ ký số Authenticode trực tiếp trên cấu trúc PE binary (`WinVerifyTrust` + `CryptQueryObject`). File thực thi chỉ được phép chạy khi chuỗi chứng chỉ hợp lệ và Subject Name khớp với nhà phát hành chính thức (`SignPath Foundation` hoặc chứng chỉ phát hành chính thức của `NexusKey` / `VKey`). Bất kỳ file thực thi nào do bên thứ ba tự build từ source sẽ bị chặn thực thi ngay lập tức |
+| **Không dùng file `.sig` rời** | Chữ ký số được nhúng trực tiếp trong header bảo mật của file PE (`IMAGE_DIRECTORY_ENTRY_SECURITY`), giúp thư mục ứng dụng luôn gọn gàng, tránh việc người dùng vô tình xóa mất file `.sig` làm hỏng tính năng |
+| **Tải về an toàn & Thay thế nguyên tử** | Trình cài đặt tiện ích tải binary từ GitHub Releases qua HTTPS, lưu tạm dưới dạng file `.tmp`, xác thực tính toàn vẹn và chữ ký Authenticode trước khi di chuyển/thay thế nguyên tử (atomic rename/replace) vào thư mục VKey |
+| **Phát triển & Debug cục bộ** | Trong chế độ Debug hoặc khi bật tùy chọn biên dịch `VKEY_ALLOW_UNSIGNED_EXTENSIONS`, cổng kiểm tra chữ ký cho phép bỏ qua xác thực Authenticode để lập trình viên có thể biên dịch và thử nghiệm tiện ích mở rộng cục bộ |
+
 ---
 
 ## Testing

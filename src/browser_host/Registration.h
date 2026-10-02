@@ -10,4 +10,10 @@ namespace NextKey::BrowserHost {
 /// or no browser manifest could be registered.
 [[nodiscard]] bool RegisterNativeMessagingHost() noexcept;
 
+/// Unregister the per-user native-messaging manifests from all supported browsers.
+[[nodiscard]] bool UnregisterNativeMessagingHost() noexcept;
+
+/// Check if the native-messaging host is currently registered in browser registry.
+[[nodiscard]] bool IsNativeMessagingHostRegistered() noexcept;
+
 } // namespace NextKey::BrowserHost

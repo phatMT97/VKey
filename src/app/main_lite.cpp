@@ -35,6 +35,7 @@
 #include "system/PendingDllApply.h"
 #include "system/ToastPopup.h"
 #include "system/WatchdogController.h"
+#include "system/BrowserExtensionController.h"
 #include "helpers/AppHelpers.h"
 
 #include "classic/ClassicSettingsDialog.h"
@@ -159,6 +160,7 @@ static void ShutdownLexiconWireMapping() noexcept {
 static HotkeyManager::SlotId g_toggleHotkeySlot = 0;
 static HotkeyManager::SlotId g_convertHotkeySlot = 0;
 static WatchdogController g_watchdog;  // Owns heartbeat + Task Scheduler entry + VKeyWatchdog.exe lifecycle
+static BrowserExtensionController g_browserExtension;  // Owns browser native-messaging registration
 static HINSTANCE g_hInstance = nullptr;
 
 // Forward declarations
@@ -462,8 +464,13 @@ static void OnMenuCommand(TrayMenuId id) {
             RestartWindowsWithPrompt(g_trayIcon.GetMessageWindow());
             break;
 
+        case TrayMenuId::ExtensionWatchdog:
         case TrayMenuId::ToggleWatchdog:
             g_watchdog.Toggle(g_trayIcon.GetMessageWindow());
+            break;
+
+        case TrayMenuId::ExtensionBrowser:
+            g_browserExtension.Toggle(g_trayIcon.GetMessageWindow());
             break;
 
         default: {
@@ -600,8 +607,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int) {
         }
     }
 
-    (void)BrowserHost::RegisterNativeMessagingHost();
-
     // ── Initialization ──
 
     OleInitialize(nullptr);
@@ -665,6 +670,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int) {
     // heartbeat thread (single-instance mutex inside watchdog dedups against
     // the logon-trigger task, so re-launch is safe).
     g_watchdog.Init(systemConfig);
+    g_browserExtension.Init(systemConfig);
 
     // Check for update failure marker
     bool updateJustFailed = false;
@@ -800,7 +806,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int) {
             (ff & FeatureFlags::MACRO_ENABLED) != 0,
             state.inputMethod,
             static_cast<CodeTable>(state.codeTable),
-            g_watchdog.IsEnabled()
+            g_watchdog.IsEnabled(),
+            g_browserExtension.IsEnabled()
         };
     });
 
