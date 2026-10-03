@@ -11,6 +11,7 @@
 #include <wintrust.h>
 #include <Softpub.h>
 #include <wincrypt.h>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #pragma comment(lib, "bcrypt.lib")
@@ -189,7 +190,9 @@ std::string ComputeFileSha256(const std::wstring& filePath) noexcept {
         std::vector<BYTE> readBuf(kBufSize);
         DWORD bytesRead = 0;
 
-        while (ReadFile(file.h, readBuf.data(), kBufSize, &bytesRead, nullptr) && bytesRead > 0) {
+        for (;;) {
+            if (!ReadFile(file.h, readBuf.data(), kBufSize, &bytesRead, nullptr)) return {};
+            if (bytesRead == 0) break;
             status = BCryptHashData(hash.h, readBuf.data(), bytesRead, 0);
             if (!BCRYPT_SUCCESS(status)) return {};
         }
@@ -243,7 +246,7 @@ bool VerifyDownloadedZip(
         }
 
         // 3. Read checksum file content
-        std::ifstream checksumFile(checksumPath, std::ios::binary);
+        std::ifstream checksumFile(std::filesystem::path(checksumPath), std::ios::binary);
         if (!checksumFile.is_open()) {
             DeleteFileW(checksumPath.c_str());
             return false;

@@ -262,6 +262,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int) {
     // Command-line Router
     // ═══════════════════════════════════════════════════════════
 
+    if (BrowserHost::IsNativeMessagingInvocation()) {
+        return BrowserHost::RunTrustedNativeMessagingHost();
+    }
+
+    if (HasCmdlineFlag(lpCmdLine, WATCHDOG_TASK_FLAG)) {
+        return WatchdogController::RunScheduledTask();
+    }
+
     // TSF Unregistration (runs elevated, then exits)
     // NOTE: Must check --unregister-tsf BEFORE --register-tsf
     // because "--register-tsf" is a substring of "--unregister-tsf"

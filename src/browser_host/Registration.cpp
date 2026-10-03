@@ -5,8 +5,10 @@
 
 #include "core/config/ConfigManager.h"
 #include "core/security/ExtensionTrust.h"
+#include "core/SystemConfig.h"
 
 #include <Windows.h>
+#include <shellapi.h>
 
 #include <string>
 #include <string_view>
@@ -18,11 +20,16 @@ constexpr wchar_t kHostName[] = L"io.github.phatmt97.vkey";
 constexpr char kChromiumId[] = "ccmggbcabaknpjielbiioolpfnpfgkbi";
 constexpr char kFirefoxId[] = "browser@vkey.phatmt97.github.io";
 
-std::wstring ModuleDirectory() {
+std::wstring ModulePath() {
     wchar_t path[MAX_PATH]{};
     const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
     if (length == 0 || length >= MAX_PATH) return {};
-    std::wstring result(path, length);
+    return std::wstring(path, length);
+}
+
+std::wstring ModuleDirectory() {
+    std::wstring result = ModulePath();
+    if (result.empty()) return {};
     const auto slash = result.find_last_of(L"\\/");
     if (slash == std::wstring::npos) return {};
     result.resize(slash);
@@ -101,22 +108,102 @@ bool CheckManifestRegistryPath(std::wstring_view vendorPath) noexcept {
 
 } // namespace
 
+bool IsNativeMessagingInvocation() noexcept {
+    LPWSTR* args = nullptr;
+    try {
+        int count = 0;
+        args = CommandLineToArgvW(GetCommandLineW(), &count);
+        if (!args) return false;
+        bool matched = false;
+        if (count >= 2) {
+            constexpr wchar_t chromeOrigin[] =
+                L"chrome-extension://ccmggbcabaknpjielbiioolpfnpfgkbi/";
+            matched = _wcsicmp(args[1], chromeOrigin) == 0;
+            if (!matched && count >= 3) {
+                const std::wstring firefoxManifest = ConfigManager::GetAppDataDirectory()
+                    + L"\\native-messaging\\vkey-browser-firefox.json";
+                matched = _wcsicmp(args[1], firefoxManifest.c_str()) == 0 &&
+                    _wcsicmp(args[2], L"browser@vkey.phatmt97.github.io") == 0;
+            }
+        }
+        LocalFree(args);
+        return matched;
+    } catch (...) {
+        if (args) LocalFree(args);
+        return false;
+    }
+}
+
+int RunTrustedNativeMessagingHost() noexcept {
+    try {
+        if (!ConfigManager::LoadSystemConfigOrDefault().browserExtensionEnabled) return 1;
+        const std::wstring moduleDir = ModuleDirectory();
+        if (moduleDir.empty()) return 1;
+        const std::wstring hostPath = moduleDir + L"\\VKeyBrowserHost.exe";
+        if (!Security::IsExtensionTrusted(hostPath, Security::ExtensionBinary::BrowserHost))
+            return 1;
+
+        HANDLE handles[3] = {};
+        const DWORD types[3] = { STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE };
+        const HANDLE process = GetCurrentProcess();
+        bool ready = true;
+        for (int i = 0; i < 3; ++i) {
+            HANDLE source = GetStdHandle(types[i]);
+            if (!source || source == INVALID_HANDLE_VALUE ||
+                !DuplicateHandle(process, source, process, &handles[i], 0, TRUE,
+                                 DUPLICATE_SAME_ACCESS)) {
+                ready = false;
+                break;
+            }
+        }
+
+        int result = 1;
+        if (ready) {
+            STARTUPINFOW startup{};
+            startup.cb = sizeof(startup);
+            startup.dwFlags = STARTF_USESTDHANDLES;
+            startup.hStdInput = handles[0];
+            startup.hStdOutput = handles[1];
+            startup.hStdError = handles[2];
+            PROCESS_INFORMATION child{};
+            if (CreateProcessW(hostPath.c_str(), nullptr, nullptr, nullptr, TRUE,
+                               CREATE_NO_WINDOW, nullptr, moduleDir.c_str(),
+                               &startup, &child)) {
+                CloseHandle(child.hThread);
+                WaitForSingleObject(child.hProcess, INFINITE);
+                DWORD exitCode = 1;
+                if (GetExitCodeProcess(child.hProcess, &exitCode))
+                    result = static_cast<int>(exitCode);
+                CloseHandle(child.hProcess);
+            }
+        }
+        for (HANDLE handle : handles) {
+            if (handle) CloseHandle(handle);
+        }
+        return result;
+    } catch (...) {
+        return 1;
+    }
+}
+
 bool RegisterNativeMessagingHost() noexcept {
     try {
         const std::wstring moduleDir = ModuleDirectory();
         if (moduleDir.empty()) return false;
         const std::wstring hostPath = moduleDir + L"\\VKeyBrowserHost.exe";
+        const std::wstring appPath = ModulePath();
+        if (appPath.empty()) return false;
         if (GetFileAttributesW(hostPath.c_str()) == INVALID_FILE_ATTRIBUTES) return false;
 
         // Security gate: verify binary integrity and signature before registering
-        if (!Security::IsExtensionTrusted(hostPath)) return false;
+        if (!Security::IsExtensionTrusted(hostPath, Security::ExtensionBinary::BrowserHost)) return false;
 
         const std::wstring root = ConfigManager::GetAppDataDirectory()
             + L"\\native-messaging";
         CreateDirectoryW(root.c_str(), nullptr);
         const std::wstring chromiumManifest = root + L"\\vkey-browser-chromium.json";
         const std::wstring firefoxManifest = root + L"\\vkey-browser-firefox.json";
-        const std::string escapedHost = JsonPath(hostPath);
+        const std::string escapedHost = JsonPath(appPath);
         const std::string chromiumJson =
             "{\n  \"name\": \"io.github.phatmt97.vkey\",\n"
             "  \"description\": \"VKey browser routing host\",\n"

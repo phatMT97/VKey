@@ -31,7 +31,7 @@ void WatchdogController::Init(const SystemConfig& systemConfig) {
     // Watchdog has its own single-instance mutex — duplicate launch is a
     // no-op. Re-launch on every startup means the user doesn't have to log
     // out/in to recover the watchdog after enabling.
-    LaunchWatchdogProcess();
+    (void)LaunchWatchdogProcess();
 
     if (!heartbeat_.Start()) {
         NEXTKEY_LOG(L"HeartbeatPublisher start failed — watchdog auto-respawn disabled");
@@ -78,7 +78,7 @@ void WatchdogController::Toggle(HWND notifyHwnd) {
             NEXTKEY_LOG(L"HeartbeatPublisher start failed on toggle ON — watchdog auto-respawn disabled");
         }
 
-        LaunchWatchdogProcess();
+        (void)LaunchWatchdogProcess();
 
         MessageBoxW(notifyHwnd,
                     S(StringId::WATCHDOG_ENABLED_BODY),
@@ -90,16 +90,22 @@ void WatchdogController::SignalGracefulShutdown() noexcept {
     heartbeat_.SignalGracefulShutdown();
 }
 
-void WatchdogController::LaunchWatchdogProcess() noexcept {
+int WatchdogController::RunScheduledTask() noexcept {
+    const auto cfg = ConfigManager::LoadSystemConfigOrDefault();
+    if (!cfg.watchdogEnabled) return 0;
+    return LaunchWatchdogProcess() ? 0 : 1;
+}
+
+bool WatchdogController::LaunchWatchdogProcess() noexcept {
     std::wstring dir = GetInstallDirectory();
     if (dir.empty()) {
-        return;
+        return false;
     }
     std::wstring wdPath = dir + L"\\VKeyWatchdog.exe";
-    if (!Security::IsExtensionTrusted(wdPath)) {
+    if (!Security::IsExtensionTrusted(wdPath, Security::ExtensionBinary::Watchdog)) {
         NEXTKEY_LOG(L"LaunchWatchdogProcess: untrusted or invalid binary at %ls — aborted",
                     wdPath.c_str());
-        return;
+        return false;
     }
 
     STARTUPINFOW si = { sizeof(si) };
@@ -108,7 +114,9 @@ void WatchdogController::LaunchWatchdogProcess() noexcept {
                        0, nullptr, nullptr, &si, &pi)) {
         CloseHandle(pi.hThread);
         CloseHandle(pi.hProcess);
+        return true;
     }
+    return false;
 }
 
 void WatchdogController::KillWatchdogProcess() noexcept {

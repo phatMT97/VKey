@@ -4,11 +4,13 @@
 #include "PendingDllApply.h"
 #include "UpdateInstaller.h"              // TSF_DLL_FILENAME, constants, MakeParkedDllTimestamp
 #include "UpdateSecurity.h"               // ComputeFileSha256
+#include "core/security/ExtensionTrust.h"
 #include "core/Debug.h"
 #include "core/Strings.h"
 #include "core/ipc/SharedState.h"          // SharedFlags
 #include "core/ipc/SharedStateManager.h"
 
+#include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <fstream>
@@ -74,7 +76,8 @@ PendingDllState ApplyPendingDllUpdate() noexcept {
     {
         std::string expected = ReadMarkerHash(marker);
         std::string actual   = ComputeFileSha256(pending);
-        if (expected.empty() || actual.empty() || expected != actual) {
+        if (expected.empty() || actual.empty() || expected != actual ||
+            !Security::IsExtensionTrusted(pending.wstring(), Security::ExtensionBinary::TsfDll)) {
             // Unauthenticated or corrupted pending — throw it away so the
             // next boot starts clean. Don't install it.
             fs::remove(pending, ec);

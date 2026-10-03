@@ -38,12 +38,16 @@ public:
     /// Idempotent — signals "user quit, do not respawn" to the watchdog.
     void SignalGracefulShutdown() noexcept;
 
+    /// Task Scheduler entry point: check the saved setting and the embedded
+    /// companion hash before starting the watchdog.
+    [[nodiscard]] static int RunScheduledTask() noexcept;
+
     [[nodiscard]] bool IsEnabled() const noexcept {
         return enabled_.load(std::memory_order_relaxed);
     }
 
 private:
-    static void LaunchWatchdogProcess() noexcept;
+    [[nodiscard]] static bool LaunchWatchdogProcess() noexcept;
     static void KillWatchdogProcess() noexcept;
 
     HeartbeatPublisher heartbeat_;

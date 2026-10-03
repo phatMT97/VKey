@@ -2,8 +2,8 @@
 
 > [!WARNING]
 > **Experimental feature:** the extension is not yet distributed through the
-> Chrome Web Store or Firefox AMO. Install it only with a VKey build that
-> includes `VKeyBrowserHost.exe`.
+> Chrome Web Store or Firefox AMO. Enable **Hỗ trợ trình duyệt** in VKey's
+> **Tiện ích mở rộng** menu; VKey can download the matching `VKeyBrowserHost.exe`.
 
 VKey can restore a per-domain V/E mode for the current browser session and
 accept persistent hard routes from the companion
@@ -31,21 +31,23 @@ the extension is paused, normal app-level Smart Switch behavior resumes.
 
 ## Yêu cầu
 
-- Windows 10/11 và một bản VKey có `VKeyBrowserHost.exe` nằm cùng thư mục với
-  `VKey.exe` hoặc `VKeyClassic.exe`.
+- Windows 10/11 và bản VKey có mục **Hỗ trợ trình duyệt** trong menu
+  **Tiện ích mở rộng**. VKey sẽ hỏi tải `VKeyBrowserHost.exe` nếu chưa có.
 - Repo [VKey-Browser](https://github.com/phatMT97/VKey-Browser) đã được tải và
   giải nén; thư mục được chọn khi cài phải chứa `manifest.json`.
 - Muốn dùng route **TSF tương thích**, bật hỗ trợ ứng dụng TSF trong VKey.
 
-Khi khởi động, VKey tạo native-messaging manifest theo user tại
+Khi bật Hỗ trợ trình duyệt, VKey tạo native-messaging manifest theo user tại
 `%APPDATA%\VKey\native-messaging` và đăng ký cho Chrome, Edge, Brave, Vivaldi,
-Opera và Firefox. Thao tác này idempotent và được bỏ qua nếu không tìm thấy
-`VKeyBrowserHost.exe`.
+Opera và Firefox sau khi xác thực file. VKey đăng ký lại khi khởi động nếu tùy
+chọn đang bật và file vẫn hợp lệ. Manifest trỏ tới ứng dụng VKey; mỗi lần trình
+duyệt kết nối, VKey kiểm tra `VKeyBrowserHost.exe` rồi chuyển tiếp kết nối tới
+file đã xác thực.
 
 ## Cài trên Chrome, Edge, Brave, Vivaldi hoặc Opera
 
-1. Thoát VKey, kiểm tra `VKeyBrowserHost.exe` nằm cạnh file chạy VKey, rồi mở
-   lại VKey một lần để đăng ký native host.
+1. Bật **Hỗ trợ trình duyệt** trong menu **Tiện ích mở rộng** của VKey; chấp
+   nhận tải file nếu được hỏi.
 2. Mở trang quản lý extension:
    - Chrome: `chrome://extensions`
    - Edge: `edge://extensions`

@@ -131,6 +131,12 @@ option(VKEY_BUILD_BROWSER_HOST "Build VKeyBrowserHost companion executable" ON)
 option(VKEY_BUILD_WATCHDOG "Build VKeyWatchdog process supervisor" ON)
 option(VKEY_ALLOW_UNSIGNED_EXTENSIONS
     "Allow running unsigned extensions in development builds" OFF)
+set(VKEY_BROWSER_HOST_SHA256 "" CACHE STRING
+    "Exact hash of separately built Classic browser host (Foundation build only)")
+set(VKEY_RELEASE_WATCHDOG_SHA256 "" CACHE STRING
+    "Exact standard-release watchdog hash for Classic downloads")
+set(VKEY_RELEASE_BROWSER_HOST_SHA256 "" CACHE STRING
+    "Exact standard-release browser host hash for Classic downloads")
 option(VKEY_FOUNDATION_BUILD
     "Build only the GPL-3.0 VKeyClassic targets approved for Foundation signing" OFF)
 if(VKEY_FOUNDATION_BUILD)
@@ -359,8 +365,6 @@ set(NEXTKEY_CORE_SOURCES
     src/core/ipc/LexiconWireFormat.cpp
     src/core/ipc/LexiconWireManager.h
     src/core/ipc/LexiconWireManager.cpp
-    src/core/security/ExtensionTrust.h
-    src/core/security/ExtensionTrust.cpp
 )
 
 # Windows-only sources (require Windows.h)
@@ -370,8 +374,6 @@ if(WIN32)
         src/core/ipc/SharedStateManager.h
         src/core/ipc/BrowserContextManager.cpp
         src/core/ipc/BrowserContextManager.h
-        src/browser_host/Registration.cpp
-        src/browser_host/Registration.h
         src/core/SmartSwitchManager.cpp
         src/core/SmartSwitchManager.h
         src/core/SmartSwitchState.h
@@ -444,6 +446,11 @@ if(VKEY_USE_RUST_ENGINE)
     target_compile_definitions(VKeyTSF PRIVATE VKEY_USE_RUST_ENGINE)
 endif()
 
+# Declare the watchdog before the app so its exact binary can be hash-pinned.
+if(VKEY_BUILD_WATCHDOG)
+    add_subdirectory(src/watchdog)
+endif()
+
 if(WIN32 AND NOT VKEY_FOUNDATION_BUILD AND VKEY_BUILD_BROWSER_HOST)
     add_executable(VKeyBrowserHost
         src/browser_host/main.cpp
@@ -454,10 +461,48 @@ if(WIN32 AND NOT VKEY_FOUNDATION_BUILD AND VKEY_BUILD_BROWSER_HOST)
     target_link_libraries(VKeyBrowserHost PRIVATE VKeyCore advapi32)
 endif()
 
+# A version of VKey accepts only the exact companions hashed into that build.
+if(WIN32)
+    set(_extension_hash_header
+        "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>/ExtensionHashes.generated.h")
+    set(_extension_hash_deps
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateExtensionHashes.cmake"
+        VKeyTSF)
+    set(_watchdog_file "")
+    set(_browser_file "")
+    if(TARGET VKeyWatchdog)
+        set(_watchdog_file "$<TARGET_FILE:VKeyWatchdog>")
+        list(APPEND _extension_hash_deps VKeyWatchdog)
+    endif()
+    if(TARGET VKeyBrowserHost)
+        set(_browser_file "$<TARGET_FILE:VKeyBrowserHost>")
+        list(APPEND _extension_hash_deps VKeyBrowserHost)
+    endif()
+    add_custom_command(
+        OUTPUT "${_extension_hash_header}"
+        COMMAND ${CMAKE_COMMAND}
+            "-DTSF=$<TARGET_FILE:VKeyTSF>"
+            "-DWATCHDOG=${_watchdog_file}"
+            "-DBROWSER=${_browser_file}"
+            "-DBROWSER_HASH_OVERRIDE=${VKEY_BROWSER_HOST_SHA256}"
+            "-DRELEASE_WATCHDOG_HASH=${VKEY_RELEASE_WATCHDOG_SHA256}"
+            "-DRELEASE_BROWSER_HASH=${VKEY_RELEASE_BROWSER_HOST_SHA256}"
+            "-DOUTPUT=${_extension_hash_header}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateExtensionHashes.cmake"
+        DEPENDS ${_extension_hash_deps}
+        VERBATIM
+    )
+    add_custom_target(VKeyExtensionHashes DEPENDS "${_extension_hash_header}")
+endif()
+
 # Core App (EXE) - Win32 GUI application with Sciter UI
-if(NOT VKEY_FOUNDATION_BUILD)
+if(NOT VKEY_FOUNDATION_BUILD AND NOT VKEY_LITE_MODE)
 add_executable(VKeyApp WIN32
     src/app/main.cpp
+    src/browser_host/Registration.cpp
+    src/browser_host/Registration.h
+    src/core/security/ExtensionTrust.cpp
+    src/core/security/ExtensionTrust.h
     src/app/resource.h
     src/app/VKey.rc
     # dialogs/
@@ -587,6 +632,8 @@ if(VKEY_USE_RUST_ENGINE)
     target_compile_definitions(VKeyApp PRIVATE VKEY_USE_RUST_ENGINE)
 endif()
 target_link_libraries(VKeyApp PRIVATE VKeyCore)
+add_dependencies(VKeyApp VKeyExtensionHashes)
+target_include_directories(VKeyApp PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
 set_target_properties(VKeyApp PROPERTIES OUTPUT_NAME "VKey")
 if(MSVC)
     target_link_options(VKeyApp PRIVATE /SUBSYSTEM:WINDOWS,6.01)
@@ -602,6 +649,10 @@ endif()
 if(VKEY_LITE_MODE AND WIN32)
     add_executable(VKeyLite WIN32
         src/app/main_lite.cpp
+        src/browser_host/Registration.cpp
+        src/browser_host/Registration.h
+        src/core/security/ExtensionTrust.cpp
+        src/core/security/ExtensionTrust.h
         src/app/classic/resource.h
         src/app/classic/VKeyLite.rc
         src/app/classic/VKeyLite.exe.manifest
@@ -728,6 +779,8 @@ if(VKEY_LITE_MODE AND WIN32)
         VKeyCore
         advapi32 user32 ole32 shell32 dwmapi uuid urlmon version comctl32 winmm bcrypt gdiplus winhttp
     )
+    add_dependencies(VKeyLite VKeyExtensionHashes)
+    target_include_directories(VKeyLite PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
     set_target_properties(VKeyLite PROPERTIES OUTPUT_NAME "VKeyClassic")
     if(MSVC)
         target_link_options(VKeyLite PRIVATE /SUBSYSTEM:WINDOWS,6.01)
@@ -1085,12 +1138,4 @@ gtest_discover_tests(VKeyTests)
 # ============================================================================
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/internal/tools/VKeyTestRunner/CMakeLists.txt")
     add_subdirectory(internal/tools/VKeyTestRunner)
-endif()
-
-# ============================================================================
-# Watchdog — standalone Windows-only process supervisor (VKeyWatchdog.exe)
-# (sub-CMakeLists return()s on non-WIN32)
-# ============================================================================
-if(VKEY_BUILD_WATCHDOG)
-    add_subdirectory(src/watchdog)
 endif()

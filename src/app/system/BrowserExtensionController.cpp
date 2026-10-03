@@ -20,6 +20,7 @@ constexpr const wchar_t* kAppTitle = L"VKey";
 
 void BrowserExtensionController::Init(const SystemConfig& systemConfig) {
     if (!systemConfig.browserExtensionEnabled) {
+        (void)BrowserHost::UnregisterNativeMessagingHost();
         enabled_.store(false, std::memory_order_relaxed);
         return;
     }
@@ -27,6 +28,7 @@ void BrowserExtensionController::Init(const SystemConfig& systemConfig) {
     if (BrowserHost::RegisterNativeMessagingHost()) {
         enabled_.store(true, std::memory_order_relaxed);
     } else {
+        (void)BrowserHost::UnregisterNativeMessagingHost();
         NEXTKEY_LOG(L"BrowserExtensionController::Init: registration failed or host missing");
         enabled_.store(false, std::memory_order_relaxed);
     }
@@ -36,13 +38,13 @@ void BrowserExtensionController::Toggle(HWND notifyHwnd) {
     auto cfg = ConfigManager::LoadSystemConfigOrDefault();
 
     if (enabled_.load(std::memory_order_relaxed)) {
-        BrowserHost::UnregisterNativeMessagingHost();
+        (void)BrowserHost::UnregisterNativeMessagingHost();
         cfg.browserExtensionEnabled = false;
         (void)ConfigManager::SaveSystemConfig(ConfigManager::GetConfigPath(), cfg);
         enabled_.store(false, std::memory_order_relaxed);
 
         MessageBoxW(notifyHwnd,
-                    GetString(Strings::StringId::BROWSER_EXT_STOPPED_BODY),
+                    S(StringId::BROWSER_EXT_STOPPED_BODY),
                     kAppTitle, MB_OK | MB_ICONINFORMATION);
     } else {
         if (!ExtensionInstaller::EnsureInstalledWithUi(ExtensionType::BrowserHost, notifyHwnd)) {
@@ -55,7 +57,7 @@ void BrowserExtensionController::Toggle(HWND notifyHwnd) {
             enabled_.store(true, std::memory_order_relaxed);
 
             MessageBoxW(notifyHwnd,
-                        GetString(Strings::StringId::BROWSER_EXT_ENABLED_BODY),
+                        S(StringId::BROWSER_EXT_ENABLED_BODY),
                         kAppTitle, MB_OK | MB_ICONINFORMATION);
         } else {
             MessageBoxW(notifyHwnd,

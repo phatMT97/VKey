@@ -11,6 +11,7 @@
 #include "core/ipc/SharedState.h"
 #include "core/ipc/SharedStateManager.h"
 #include "core/Debug.h"
+#include "core/security/ExtensionTrust.h"
 #include "tsf/Globals.h"
 #include <atomic>
 #include <chrono>
@@ -91,6 +92,11 @@ bool RegisterTsf() {
     std::wstring dllPath = GetTsfDllPath();
     OutputDebugStringW((L"RegisterTsf: DLL path = " + dllPath + L"\n").c_str());
 
+    if (!Security::IsExtensionTrusted(dllPath, Security::ExtensionBinary::TsfDll)) {
+        NEXTKEY_LOG(L"RegisterTsf: VKeyTSF.dll failed integrity verification");
+        return false;
+    }
+
     HMODULE hDll = LoadLibraryW(dllPath.c_str());
     if (!hDll) {
         wchar_t buf[128];
@@ -120,6 +126,12 @@ bool RegisterTsf() {
 
 bool UnregisterTsf() {
     std::wstring dllPath = GetTsfDllPath();
+
+    if (!Security::IsExtensionTrusted(dllPath, Security::ExtensionBinary::TsfDll)) {
+        NEXTKEY_LOG(L"UnregisterTsf: refusing to load untrusted VKeyTSF.dll");
+        RemoveVKeyTsfFromInputList();
+        return false;
+    }
 
     HMODULE hDll = LoadLibraryW(dllPath.c_str());
     if (!hDll) {
@@ -437,6 +449,12 @@ bool ActivateVKeyTsfProfile() {
     if (!registered) {
         NEXTKEY_LOG(L"[TsfRegistration] ActivateVKeyTsfProfile skipped: TSF not "
                     L"registered (registry read %lldus)", registryUs);
+        lastResult.store(false, std::memory_order_release);
+        return false;
+    }
+
+    if (!Security::IsExtensionTrusted(GetTsfDllPath(), Security::ExtensionBinary::TsfDll)) {
+        NEXTKEY_LOG(L"[TsfRegistration] ActivateVKeyTsfProfile skipped: untrusted VKeyTSF.dll");
         lastResult.store(false, std::memory_order_release);
         return false;
     }

@@ -516,6 +516,14 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int) {
 
     // ── Command-line routes (shared with main build) ──
 
+    if (BrowserHost::IsNativeMessagingInvocation()) {
+        return BrowserHost::RunTrustedNativeMessagingHost();
+    }
+
+    if (HasCmdlineFlag(lpCmdLine, WATCHDOG_TASK_FLAG)) {
+        return WatchdogController::RunScheduledTask();
+    }
+
     if (lpCmdLine && wcsstr(lpCmdLine, L"--unregister-tsf") != nullptr) {
         CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
         bool ok = UnregisterTsf();

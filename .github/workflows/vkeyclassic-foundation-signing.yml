@@ -160,7 +160,10 @@ jobs:
 
   build-foundation:
     name: Build exact three-file Foundation input
-    needs: validate
+    needs: [validate, build-package-extras]
+    if: >-
+      always() && needs.validate.result == 'success' &&
+      (inputs.operation != 'release' || needs.build-package-extras.result == 'success')
     runs-on: windows-2022
     outputs:
       artifact-id: ${{ steps.upload.outputs.artifact-id }}
@@ -177,6 +180,47 @@ jobs:
         with:
           arch: x64
 
+      - name: Download exact unsigned browser host for hash pin
+        if: inputs.operation == 'release'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          artifact-ids: ${{ needs.build-package-extras.outputs.artifact-id }}
+          path: browser-host-pin
+
+      - name: Bind Classic app to exact browser host extra
+        if: inputs.operation == 'release'
+        shell: powershell
+        run: |
+          $files = @(Get-ChildItem browser-host-pin -File)
+          if ($files.Count -ne 1 -or $files[0].Name -ne "VKeyBrowserHost.exe") {
+            throw "Browser host pin input must contain exactly VKeyBrowserHost.exe"
+          }
+          $hash = (Get-FileHash $files[0].FullName -Algorithm SHA256).Hash.ToLower()
+          "VKEY_BROWSER_HOST_SHA256=$hash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Bind Classic downloads to exact standard-release companions
+        if: inputs.operation == 'release'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          New-Item -ItemType Directory -Path standard-extension-pins | Out-Null
+          & gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY `
+            --pattern VKeyBrowserHost.exe --pattern VKeyWatchdog.exe `
+            --dir standard-extension-pins
+          if ($LASTEXITCODE -ne 0) { throw "Cannot download standard-release companions" }
+          $actual = @(Get-ChildItem standard-extension-pins -File |
+            Select-Object -ExpandProperty Name | Sort-Object)
+          $expected = @("VKeyBrowserHost.exe", "VKeyWatchdog.exe")
+          if (Compare-Object $expected $actual) {
+            throw "Standard release companion inventory differs from the two-file allowlist"
+          }
+          $browserHash = (Get-FileHash standard-extension-pins/VKeyBrowserHost.exe -Algorithm SHA256).Hash.ToLower()
+          $watchdogHash = (Get-FileHash standard-extension-pins/VKeyWatchdog.exe -Algorithm SHA256).Hash.ToLower()
+          "VKEY_RELEASE_BROWSER_HOST_SHA256=$browserHash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "VKEY_RELEASE_WATCHDOG_SHA256=$watchdogHash" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Configure dedicated Foundation build
         run: >-
           cmake -S . -B build-foundation
@@ -186,6 +230,9 @@ jobs:
           -DVKEY_USE_RUST_ENGINE=OFF
           -DVKEY_CLASSIC_ALLOW_RUST_ENGINE_FOR_DEV=OFF
           -DVKEY_ALLOW_UNSIGNED_LOCAL_ENGINE=OFF
+          -DVKEY_BROWSER_HOST_SHA256=$env:VKEY_BROWSER_HOST_SHA256
+          -DVKEY_RELEASE_BROWSER_HOST_SHA256=$env:VKEY_RELEASE_BROWSER_HOST_SHA256
+          -DVKEY_RELEASE_WATCHDOG_SHA256=$env:VKEY_RELEASE_WATCHDOG_SHA256
 
       - name: Verify Foundation build graph
         shell: powershell
@@ -672,18 +719,18 @@ jobs:
             throw "Refusing to reuse a pre-existing package stage: $dist"
           }
           New-Item -ItemType Directory -Path $dist | Out-Null
-          foreach ($name in @("VKeyClassic.exe", "VKeyTSF.dll", "VKeyWatchdog.exe")) {
+          foreach ($name in @("VKeyClassic.exe", "VKeyTSF.dll")) {
             Copy-Item (Join-Path "signed-vkeyclassic-foundation-release" $name) $dist -Force
           }
-          Copy-Item $browserHost $dist -Force
+          Copy-Item (Join-Path "signed-vkeyclassic-foundation-release" "VKeyWatchdog.exe") `
+            "VKeyClassicWatchdog.exe" -Force
+          Copy-Item $browserHost "VKeyClassicBrowserHost.exe" -Force
           Copy-Item "THIRD_PARTY_NOTICES.txt" $dist -Force
 
           $expected = @(
             "THIRD_PARTY_NOTICES.txt",
-            "VKeyBrowserHost.exe",
             "VKeyClassic.exe",
-            "VKeyTSF.dll",
-            "VKeyWatchdog.exe"
+            "VKeyTSF.dll"
           ) | Sort-Object
           $actual = @(
             Get-ChildItem $dist -File |
@@ -692,7 +739,7 @@ jobs:
           )
           if (Compare-Object $expected $actual) {
             $actual | Write-Output
-            throw "Classic package inventory differs from the five-file allowlist"
+            throw "Classic package inventory differs from the three-file allowlist"
           }
 
       - name: Create release archives and checksums
@@ -701,7 +748,10 @@ jobs:
           $packageRoot = Join-Path $env:RUNNER_TEMP "release-package"
           Compress-Archive -Path (Join-Path $packageRoot "*") -DestinationPath VKeyClassic.zip
           Copy-Item VKeyClassic.zip VKeyClassic-x64.zip -Force
-          foreach ($file in @("VKeyClassic.zip", "VKeyClassic-x64.zip")) {
+          foreach ($file in @(
+            "VKeyClassic.zip", "VKeyClassic-x64.zip",
+            "VKeyClassicBrowserHost.exe", "VKeyClassicWatchdog.exe"
+          )) {
             $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLower()
             "$hash  $file" | Out-File -Encoding ascii "$file.sha256"
           }
@@ -716,15 +766,21 @@ jobs:
             VKeyClassic.zip.sha256
             VKeyClassic-x64.zip
             VKeyClassic-x64.zip.sha256
+            VKeyClassicBrowserHost.exe
+            VKeyClassicBrowserHost.exe.sha256
+            VKeyClassicWatchdog.exe
+            VKeyClassicWatchdog.exe.sha256
           if-no-files-found: error
           retention-days: 30
 
-      - name: Attest Classic release archives
+      - name: Attest Classic release assets
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
             VKeyClassic.zip
             VKeyClassic-x64.zip
+            VKeyClassicBrowserHost.exe
+            VKeyClassicWatchdog.exe
 
   attach-release:
     name: Attach preverified assets to existing GitHub Release
@@ -777,7 +833,11 @@ jobs:
             "VKeyClassic.zip",
             "VKeyClassic.zip.sha256",
             "VKeyClassic-x64.zip",
-            "VKeyClassic-x64.zip.sha256"
+            "VKeyClassic-x64.zip.sha256",
+            "VKeyClassicBrowserHost.exe",
+            "VKeyClassicBrowserHost.exe.sha256",
+            "VKeyClassicWatchdog.exe",
+            "VKeyClassicWatchdog.exe.sha256"
           ) | Sort-Object
           $actual = @(
             Get-ChildItem $root -File |
@@ -788,21 +848,37 @@ jobs:
           if ($directories.Count -ne 0 -or (Compare-Object $expected $actual)) {
             $directories.FullName | Write-Output
             $actual | Write-Output
-            throw "Downloaded release assets differ from the four-file allowlist"
+            throw "Downloaded release assets differ from the eight-file allowlist"
           }
 
-          foreach ($archiveName in @("VKeyClassic.zip", "VKeyClassic-x64.zip")) {
-            $archive = Join-Path $root $archiveName
-            $sidecar = "$archive.sha256"
+          foreach ($assetName in @(
+            "VKeyClassic.zip", "VKeyClassic-x64.zip",
+            "VKeyClassicBrowserHost.exe", "VKeyClassicWatchdog.exe"
+          )) {
+            $assetPath = Join-Path $root $assetName
+            $sidecar = "$assetPath.sha256"
             $line = (Get-Content $sidecar -Raw).Trim()
-            $expectedLine = "^([0-9a-f]{64})  $([regex]::Escape($archiveName))$"
+            $expectedLine = "^([0-9a-f]{64})  $([regex]::Escape($assetName))$"
             if ($line -notmatch $expectedLine) {
               throw "Malformed checksum sidecar: $sidecar"
             }
-            $actualHash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
+            $actualHash = (Get-FileHash $assetPath -Algorithm SHA256).Hash.ToLower()
             if ($actualHash -ne $Matches[1]) {
-              throw "Checksum sidecar does not match downloaded archive: $archiveName"
+              throw "Checksum sidecar does not match downloaded asset: $assetName"
             }
+          }
+
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          foreach ($archiveName in @("VKeyClassic.zip", "VKeyClassic-x64.zip")) {
+            $archive = [System.IO.Compression.ZipFile]::OpenRead((Join-Path $root $archiveName))
+            try {
+              $entries = @($archive.Entries | ForEach-Object { $_.FullName } | Sort-Object)
+              $expectedEntries = @("THIRD_PARTY_NOTICES.txt", "VKeyClassic.exe", "VKeyTSF.dll")
+              if (Compare-Object $expectedEntries $entries) {
+                throw "$archiveName contains an unexpected file"
+              }
+            }
+            finally { $archive.Dispose() }
           }
 
       - name: Attach without creating or overwriting a release
@@ -838,8 +914,12 @@ jobs:
           $assets = @(
             "VKeyClassic.zip.sha256",
             "VKeyClassic-x64.zip.sha256",
+            "VKeyClassicBrowserHost.exe.sha256",
+            "VKeyClassicWatchdog.exe.sha256",
             "VKeyClassic.zip",
-            "VKeyClassic-x64.zip"
+            "VKeyClassic-x64.zip",
+            "VKeyClassicBrowserHost.exe",
+            "VKeyClassicWatchdog.exe"
           )
           $missingAssets = @()
           foreach ($asset in $assets) {

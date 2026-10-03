@@ -128,10 +128,10 @@ winget install PhatMT97.VKey.Classic
 ### Extension trình duyệt thử nghiệm
 
 > [!WARNING]
-> Đây là tính năng thử nghiệm. Bản VKey sử dụng phải có
-> `VKeyBrowserHost.exe` nằm cạnh `VKey.exe` hoặc `VKeyClassic.exe`.
+> Đây là tính năng thử nghiệm. Bật **Hỗ trợ trình duyệt** trong menu
+> **Tiện ích mở rộng**; VKey sẽ hỏi tải `VKeyBrowserHost.exe` phù hợp nếu chưa có.
 
-1. Chạy VKey một lần để đăng ký native-messaging host.
+1. Bật **Hỗ trợ trình duyệt** trong menu **Tiện ích mở rộng** để đăng ký native-messaging host.
 2. Tải và giải nén [VKey-Browser](https://github.com/phatMT97/VKey-Browser).
 3. Bật Developer mode tại `chrome://extensions`, `edge://extensions` hoặc
    `brave://extensions`, chọn **Load unpacked** rồi chọn thư mục có
@@ -152,7 +152,7 @@ xóa khi browser restart; hard rule vẫn được giữ. Xem protocol, giới h
 xử lý lỗi tại [docs/BROWSER_EXTENSION.md](docs/BROWSER_EXTENSION.md).
 
 > **Ký số (Code signing) & Bản Classic:** 
-> - Trong bản **v4.3, SignPath Foundation chỉ ký ba binary GPL-3.0 của gói Classic chính thức**: `VKeyClassic.exe`, `VKeyTSF.dll` và `VKeyWatchdog.exe`. Cả ba được tạo cùng nhau từ cấu hình Foundation riêng, với Engine Rust bị compile-out hoàn toàn và không có Sciter.
+> - Trong bản **v4.3, SignPath Foundation chỉ ký ba binary GPL-3.0 của bản Classic chính thức**: `VKeyClassic.exe`, `VKeyTSF.dll` và `VKeyWatchdog.exe`. Watchdog được phát hành riêng dưới tên `VKeyClassicWatchdog.exe`; VKey tải và lưu cạnh ứng dụng dưới tên `VKeyWatchdog.exe`. Cả ba được tạo cùng nhau từ cấu hình Foundation riêng, với Engine Rust bị compile-out hoàn toàn và không có Sciter.
 > - Phạm vi ký Foundation **không áp dụng** cho `VKey.exe`/VKeyApp, `sciter.dll`, installer, Engine Rust (`vkey_engine.dll`) hoặc bất kỳ thành phần proprietary nào. `VKeyBrowserHost.exe` có mã nguồn GPL-3.0 công khai nhưng không nằm trong request ba file hiện tại. Bản tiêu chuẩn (Sciter UI) v4.3 chưa được ký Authenticode; Windows SmartScreen có thể cảnh báo khi chạy lần đầu (chọn *More info* → *Run anyway*). Các bản v4.0–v4.2 trước đó đều được ký Authenticode đầy đủ.
 > - Cách xác minh bản tải hiện nay: xem mục [Xác minh bản tải](#xác-minh-bản-tải-verify-release) bên dưới.
 
@@ -173,7 +173,7 @@ cosign verify-blob VKey.zip \
   --certificate-identity-regexp="https://github.com/phatMT97/VKey/"
 ```
 
-> **Lưu ý:** Attestation Sigstore ở trên là cách xác minh chính thức cho bản **v4.3 tiêu chuẩn** — nó chứng minh file được build từ đúng mã nguồn trong repo này. Trong gói **v4.3 Classic**, chỉ `VKeyClassic.exe`, `VKeyTSF.dll` và `VKeyWatchdog.exe` thuộc phạm vi Authenticode của Foundation (`CN=SignPath Foundation`). Bản v4.3 tiêu chuẩn (Sciter) và `VKeyBrowserHost.exe` **không** thuộc phạm vi này, nên `(Get-AuthenticodeSignature VKey.exe).Status` sẽ không trả về `Valid`; đó là điều bình thường với bản tiêu chuẩn v4.3, không phải dấu hiệu file giả. (Các bản v4.0–v4.2 có ký Authenticode với publisher `CN=SignPath Foundation`.)
+> **Lưu ý:** Attestation Sigstore ở trên là cách xác minh chính thức cho bản **v4.3 tiêu chuẩn** — nó chứng minh file được build từ đúng mã nguồn trong repo này. Trong bản **v4.3 Classic**, chỉ `VKeyClassic.exe`, `VKeyTSF.dll` và Watchdog phát hành riêng dưới tên `VKeyClassicWatchdog.exe` thuộc phạm vi Authenticode của Foundation (`CN=SignPath Foundation`). Bản v4.3 tiêu chuẩn (Sciter) và Browser Host **không** thuộc phạm vi này, nên `(Get-AuthenticodeSignature VKey.exe).Status` sẽ không trả về `Valid`; đó là điều bình thường với bản tiêu chuẩn v4.3, không phải dấu hiệu file giả. (Các bản v4.0–v4.2 có ký Authenticode với publisher `CN=SignPath Foundation`.)
 >
 > Một số phần mềm diệt virus có thể cảnh báo VKey theo **hành vi** (bộ gõ nào cũng phải hook bàn phím + gửi phím) — đây là cảnh báo nhầm, và bản không ký số dễ bị cảnh báo hơn. Cách khôi phục & loại trừ: **[docs/ANTIVIRUS.md](docs/ANTIVIRUS.md)**.
 
@@ -323,7 +323,7 @@ winget install PhatMT97.VKey.Classic
 
 *(Recommended)* Disable other IMEs (Unikey, EVKey) before running to avoid conflicts.
 
-> **Code signing & Classic edition:** In **v4.3, SignPath Foundation signing applies only to the three GPL-3.0 binaries in the official Classic package**: `VKeyClassic.exe`, `VKeyTSF.dll`, and `VKeyWatchdog.exe`. They are built together by a dedicated Foundation configuration with the Rust engine compiled out and no Sciter dependency. Foundation signing does **not** apply to `VKey.exe`/VKeyApp, `sciter.dll`, installers, `vkey_engine.dll`, or any proprietary component. `VKeyBrowserHost.exe` is public GPL-3.0 code but is outside the current three-file request. The standard Sciter edition is therefore not Authenticode-signed and may trigger Windows SmartScreen. Releases v4.0–v4.2 were Authenticode-signed. To verify any download, use the Sigstore attestation described above.
+> **Code signing & Classic edition:** In **v4.3, SignPath Foundation signing applies only to three GPL-3.0 Classic binaries**: `VKeyClassic.exe`, `VKeyTSF.dll`, and `VKeyWatchdog.exe`. The signed watchdog is a separate release asset named `VKeyClassicWatchdog.exe`. They are built together by a dedicated Foundation configuration with the Rust engine compiled out and no Sciter dependency. Foundation signing does **not** apply to `VKey.exe`/VKeyApp, `sciter.dll`, installers, `vkey_engine.dll`, or any proprietary component. `VKeyBrowserHost.exe` is public GPL-3.0 code but is outside the current three-file request. The standard Sciter edition is therefore not Authenticode-signed and may trigger Windows SmartScreen. Releases v4.0–v4.2 were Authenticode-signed. To verify any download, use the Sigstore attestation described above.
 
 ### Building
 

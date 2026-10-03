@@ -34,6 +34,7 @@ inline constexpr const wchar_t* STARTUP_REG_KEY = L"Software\\Microsoft\\Windows
 inline constexpr const wchar_t* STARTUP_REG_VALUE = L"VKey";
 inline constexpr const wchar_t* STARTUP_TASK_NAME = L"VKey";
 inline constexpr const wchar_t* WATCHDOG_TASK_NAME = L"\\VKey\\Watchdog";
+inline constexpr const wchar_t* WATCHDOG_TASK_FLAG = L"--watchdog-task";
 
 // Forward declaration — defined below. RemoveScheduledTask() calls this before
 // its definition appears in the file.
@@ -227,10 +228,10 @@ inline void RemoveRegistryStartup() noexcept {
 
 /// Create the watchdog scheduled task at \VKey\Watchdog.
 /// Differences from CreateScheduledTaskElevated():
-///   - Action: VKeyWatchdog.exe (sibling of VKey.exe in install dir)
+///   - Action: current VKey executable with --watchdog-task. The app verifies
+///     the companion before launching it; Task Scheduler must not bypass that gate.
 ///   - Trigger delay: 10s (let VKey come up first; main task uses 5s)
-///   - Settings: RestartCount=3, RestartInterval=1min for self-healing if
-///     the watchdog itself dies (Win10+).
+///   - Settings: RestartCount=3, RestartInterval=1min if the launch fails.
 ///   - Principal RunLevel: Limited (NOT Highest) — process supervisor doesn't
 ///     need elevation. Keeps AV calm, no UAC needed at logon.
 ///   - Task path: \VKey\Watchdog (user-root folder, visible in Task
@@ -239,7 +240,9 @@ inline void RemoveRegistryStartup() noexcept {
 [[nodiscard]] inline bool CreateWatchdogScheduledTask() noexcept {
     std::wstring dirStr = GetInstallDirectory();
     if (dirStr.empty()) return false;
-    std::wstring watchdogPath = dirStr + L"\\VKeyWatchdog.exe";
+    wchar_t appPath[MAX_PATH] = {};
+    const DWORD appLength = GetModuleFileNameW(nullptr, appPath, MAX_PATH);
+    if (appLength == 0 || appLength >= MAX_PATH) return false;
 
     // Get current username BEFORE elevation — ensures task triggers for the
     // logged-in user, not the admin account used for UAC elevation.
@@ -252,7 +255,7 @@ inline void RemoveRegistryStartup() noexcept {
     std::wstring ps1Args = L"-NoProfile -WindowStyle Hidden -Command \"";
     // Bare path — see CreateScheduledTaskElevated() (issue #210): quotes in the
     // <Command> field cause 0x2 "cannot find the file" at logon.
-    ps1Args += L"$A = New-ScheduledTaskAction -Execute '" + EscapePowerShellSingleQuote(watchdogPath) + L"' -WorkingDirectory '" + EscapePowerShellSingleQuote(dirStr) + L"'; ";
+    ps1Args += L"$A = New-ScheduledTaskAction -Execute '" + EscapePowerShellSingleQuote(appPath) + L"' -Argument '" + WATCHDOG_TASK_FLAG + L"' -WorkingDirectory '" + EscapePowerShellSingleQuote(dirStr) + L"'; ";
     ps1Args += L"$T = New-ScheduledTaskTrigger -AtLogOn; ";
     ps1Args += L"$T.Delay = 'PT10S'; ";  // 10s after logon — let VKey come up first
     ps1Args += L"$S = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1); ";

@@ -17,6 +17,14 @@
 
 namespace NextKey {
 
+namespace {
+Security::ExtensionBinary TrustKind(ExtensionType type) noexcept {
+    return type == ExtensionType::Watchdog
+        ? Security::ExtensionBinary::Watchdog
+        : Security::ExtensionBinary::BrowserHost;
+}
+}
+
 std::wstring ExtensionInstaller::GetExtensionExeName(ExtensionType type) noexcept {
     switch (type) {
         case ExtensionType::Watchdog:
@@ -39,8 +47,14 @@ std::wstring ExtensionInstaller::GetExtensionPath(ExtensionType type) noexcept {
 }
 
 std::wstring ExtensionInstaller::GetExtensionDownloadUrl(ExtensionType type) {
+#ifdef VKEY_LITE_MODE
+    const std::wstring assetName = type == ExtensionType::Watchdog
+        ? L"VKeyClassicWatchdog.exe" : L"VKeyClassicBrowserHost.exe";
+#else
+    const std::wstring assetName = GetExtensionExeName(type);
+#endif
     return L"https://github.com/phatMT97/VKey/releases/download/"
-           L"v" VKEY_VERSION_WSTR L"/" + GetExtensionExeName(type);
+           L"v" VKEY_VERSION_WSTR L"/" + assetName;
 }
 
 std::wstring ExtensionInstaller::GetReleasePageUrl() {
@@ -49,7 +63,7 @@ std::wstring ExtensionInstaller::GetReleasePageUrl() {
 
 bool ExtensionInstaller::IsInstalledAndTrusted(ExtensionType type) noexcept {
     const std::wstring path = GetExtensionPath(type);
-    return Security::IsExtensionTrusted(path);
+    return Security::IsExtensionTrusted(path, TrustKind(type));
 }
 
 #ifdef _WIN32
@@ -58,7 +72,7 @@ bool ExtensionInstaller::EnsureInstalledWithUi(ExtensionType type, HWND parentHw
     const std::wstring path = GetExtensionPath(type);
 
     // 1. If already present and trusted, nothing more to do
-    if (Security::IsExtensionTrusted(path)) {
+    if (Security::IsExtensionTrusted(path, TrustKind(type))) {
         return true;
     }
 
@@ -66,7 +80,7 @@ bool ExtensionInstaller::EnsureInstalledWithUi(ExtensionType type, HWND parentHw
     const bool fileExists = (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES);
     if (fileExists) {
         std::wstring reason;
-        Security::VerifyExtensionBinary(path, &reason);
+        (void)Security::VerifyExtensionBinary(path, TrustKind(type), &reason);
 
         const std::wstring warnMsg = L"Tệp " + exeName +
             L" hiện có trong thư mục ứng dụng nhưng không vượt qua kiểm tra an toàn:\n" +
@@ -118,7 +132,7 @@ bool ExtensionInstaller::EnsureInstalledWithUi(ExtensionType type, HWND parentHw
 
     // 4. Verify integrity and signature of downloaded staging file
     std::wstring reason;
-    auto trust = Security::VerifyExtensionBinary(staging, &reason);
+    auto trust = Security::VerifyExtensionBinary(staging, TrustKind(type), &reason);
     if (trust != Security::ExtensionTrustResult::Trusted &&
         trust != Security::ExtensionTrustResult::DevBypass) {
         DeleteFileW(staging.c_str());

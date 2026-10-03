@@ -825,12 +825,16 @@ jobs:
           $assets = @(
             "VKey.zip.sha256",
             "VKey-x64.zip.sha256",
+            "VKeyBrowserHost.exe.sha256",
+            "VKeyWatchdog.exe.sha256",
             "vkey_engine.dll.sha256",
             "vkey_engine.dll.sig.sha256",
             "vkey_engine.dll.sig",
             "vkey_engine.LICENSE.txt",
             "VKey.zip",
             "VKey-x64.zip",
+            "VKeyBrowserHost.exe",
+            "VKeyWatchdog.exe",
             "vkey_engine.dll"
           )
           $missingAssets = @()

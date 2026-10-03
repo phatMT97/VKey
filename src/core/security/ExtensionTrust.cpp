@@ -3,12 +3,17 @@
 
 #include "core/security/ExtensionTrust.h"
 #include "core/Debug.h"
+#include "core/Version.h"
+#include "system/UpdateSecurity.h"
 
 #include <vector>
 #include <filesystem>
+#include <string_view>
 
 #ifdef _WIN32
+#include "ExtensionHashes.generated.h"
 #include <Windows.h>
+#include <winver.h>
 #include <wintrust.h>
 #include <Softpub.h>
 #include <wincrypt.h>
@@ -20,23 +25,26 @@ namespace {
 
 constexpr DWORD kMaxExtensionBytes = 32 * 1024 * 1024; // 32 MiB ceiling
 
-bool ContainsIgnoreCase(const std::wstring& haystack, const std::wstring& needle) noexcept {
-    if (needle.empty()) return true;
-    if (needle.size() > haystack.size()) return false;
-    auto lower = [](wchar_t c) -> wchar_t {
-        return (c >= L'A' && c <= L'Z') ? static_cast<wchar_t>(c - L'A' + L'a') : c;
-    };
-    for (size_t i = 0; i + needle.size() <= haystack.size(); ++i) {
-        size_t j = 0;
-        for (; j < needle.size(); ++j) {
-            if (lower(haystack[i + j]) != lower(needle[j])) break;
-        }
-        if (j == needle.size()) return true;
+#ifdef VKEY_LITE_MODE
+bool HasCurrentVersion(const std::wstring& filePath) {
+    DWORD ignored = 0;
+    const DWORD size = GetFileVersionInfoSizeW(filePath.c_str(), &ignored);
+    if (size == 0 || size > 1024 * 1024) return false;
+    std::vector<BYTE> versionData(size);
+    if (!GetFileVersionInfoW(filePath.c_str(), 0, size, versionData.data())) return false;
+    VS_FIXEDFILEINFO* info = nullptr;
+    UINT length = 0;
+    if (!VerQueryValueW(versionData.data(), L"\\", reinterpret_cast<LPVOID*>(&info), &length) ||
+        !info || length < sizeof(VS_FIXEDFILEINFO) || info->dwSignature != VS_FFI_SIGNATURE) {
+        return false;
     }
-    return false;
+    return HIWORD(info->dwFileVersionMS) == VKEY_VERSION_MAJOR &&
+           LOWORD(info->dwFileVersionMS) == VKEY_VERSION_MINOR &&
+           HIWORD(info->dwFileVersionLS) == VKEY_VERSION_PATCH &&
+           LOWORD(info->dwFileVersionLS) == 0;
 }
 
-bool SignerSubjectMatches(const std::wstring& filePath, const std::vector<std::wstring>& allowedSigners) noexcept {
+bool SignerSubjectMatches(const std::wstring& filePath) {
     HCERTSTORE hStore = nullptr;
     HCRYPTMSG hMsg = nullptr;
     bool matched = false;
@@ -61,20 +69,15 @@ bool SignerSubjectMatches(const std::wstring& filePath, const std::vector<std::w
                 X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0,
                 CERT_FIND_SUBJECT_CERT, &ci, nullptr);
             if (cert) {
-                DWORD len = CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE,
-                    0, nullptr, nullptr, 0);
-                if (len > 1) {
-                    std::vector<wchar_t> name(len);
-                    CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE, 0,
-                        nullptr, name.data(), len);
-                    std::wstring subjectName(name.data());
-                    for (const auto& allowed : allowedSigners) {
-                        if (ContainsIgnoreCase(subjectName, allowed)) {
-                            matched = true;
-                            break;
-                        }
-                    }
-                }
+                wchar_t commonName[128]{};
+                wchar_t organization[128]{};
+                const DWORD cnLength = CertGetNameStringW(cert, CERT_NAME_SIMPLE_DISPLAY_TYPE,
+                    0, nullptr, commonName, 128);
+                const DWORD orgLength = CertGetNameStringW(cert, CERT_NAME_ATTR_TYPE,
+                    0, const_cast<char*>(szOID_ORGANIZATION_NAME), organization, 128);
+                matched = cnLength > 1 && cnLength < 128 && orgLength > 1 && orgLength < 128
+                    && std::wstring_view(commonName) == L"SignPath Foundation"
+                    && std::wstring_view(organization) == L"SignPath Foundation";
                 CertFreeCertificateContext(cert);
             }
         }
@@ -84,6 +87,7 @@ bool SignerSubjectMatches(const std::wstring& filePath, const std::vector<std::w
     if (hStore) CertCloseStore(hStore, 0);
     return matched;
 }
+#endif
 
 } // namespace
 #endif // _WIN32
@@ -92,6 +96,7 @@ namespace NextKey::Security {
 
 ExtensionTrustResult VerifyExtensionBinary(
     const std::wstring& filePath,
+    ExtensionBinary binary,
     std::wstring* reasonOut) noexcept {
     try {
 #ifdef _WIN32
@@ -111,50 +116,64 @@ ExtensionTrustResult VerifyExtensionBinary(
             return ExtensionTrustResult::SizeOutOfRange;
         }
 
-        // 3. Authenticode signature check via WinVerifyTrust
-        WINTRUST_FILE_INFO fileInfo{};
-        fileInfo.cbStruct = sizeof(fileInfo);
-        fileInfo.pcwszFilePath = filePath.c_str();
+        // 3. Each VKey build embeds hashes of its own companions. Classic also
+        // embeds hashes of the standard-release assets it may download later.
+        const std::string_view bundledHash = binary == ExtensionBinary::Watchdog
+            ? BuildPins::kWatchdogSha256
+            : binary == ExtensionBinary::BrowserHost
+                ? BuildPins::kBrowserHostSha256 : BuildPins::kTsfSha256;
+        const std::string_view releaseHash = binary == ExtensionBinary::Watchdog
+            ? BuildPins::kReleaseWatchdogSha256
+            : binary == ExtensionBinary::BrowserHost
+                ? BuildPins::kReleaseBrowserHostSha256 : std::string_view{};
+        const std::string actualHash = ComputeFileSha256(filePath);
+        if ((bundledHash.size() == 64 && actualHash == bundledHash) ||
+            (releaseHash.size() == 64 && actualHash == releaseHash)) {
+            return ExtensionTrustResult::Trusted;
+        }
 
-        GUID actionGuid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
-        WINTRUST_DATA wtd{};
-        wtd.cbStruct = sizeof(wtd);
-        wtd.dwUIChoice = WTD_UI_NONE;
-        wtd.fdwRevocationChecks = WTD_REVOKE_WHOLECHAIN;
-        wtd.dwUnionChoice = WTD_CHOICE_FILE;
-        wtd.pFile = &fileInfo;
-        wtd.dwStateAction = WTD_STATEACTION_VERIFY;
-        wtd.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN | WTD_SAFER_FLAG;
+        // 4. Foundation signs Classic's watchdog and TSF DLL after the app
+        // build, changing their hashes. Their signed version resources must
+        // match the running Classic version.
+        LONG status = TRUST_E_NOSIGNATURE;
+#ifdef VKEY_LITE_MODE
+        if ((binary == ExtensionBinary::Watchdog || binary == ExtensionBinary::TsfDll)
+            && HasCurrentVersion(filePath)) {
+            WINTRUST_FILE_INFO fileInfo{};
+            fileInfo.cbStruct = sizeof(fileInfo);
+            fileInfo.pcwszFilePath = filePath.c_str();
 
-        LONG status = WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE),
-                                     &actionGuid, &wtd);
-        wtd.dwStateAction = WTD_STATEACTION_CLOSE;
-        WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE), &actionGuid, &wtd);
+            GUID actionGuid = WINTRUST_ACTION_GENERIC_VERIFY_V2;
+            WINTRUST_DATA wtd{};
+            wtd.cbStruct = sizeof(wtd);
+            wtd.dwUIChoice = WTD_UI_NONE;
+            wtd.fdwRevocationChecks = WTD_REVOKE_WHOLECHAIN;
+            wtd.dwUnionChoice = WTD_CHOICE_FILE;
+            wtd.pFile = &fileInfo;
+            wtd.dwStateAction = WTD_STATEACTION_VERIFY;
+            wtd.dwProvFlags = WTD_REVOCATION_CHECK_CHAIN | WTD_SAFER_FLAG;
 
-        if (status == ERROR_SUCCESS) {
-            // Verify publisher pin
-            static const std::vector<std::wstring> kAllowedSigners = {
-                L"SignPath Foundation",
-                L"NexusKey",
-                L"VKey"
-            };
-            if (SignerSubjectMatches(filePath, kAllowedSigners)) {
+            status = WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE),
+                                    &actionGuid, &wtd);
+            wtd.dwStateAction = WTD_STATEACTION_CLOSE;
+            WinVerifyTrust(static_cast<HWND>(INVALID_HANDLE_VALUE), &actionGuid, &wtd);
+
+            if (status == ERROR_SUCCESS && SignerSubjectMatches(filePath)) {
                 return ExtensionTrustResult::Trusted;
             }
         }
+#endif
 
         // Development bypass escape hatch
 #if !defined(NDEBUG) || defined(VKEY_ALLOW_UNSIGNED_EXTENSIONS)
-        NEXTKEY_LOG(L"[DEV] Extension %ls bypasses signature check (allowed in dev/debug build)",
+        NEXTKEY_LOG(L"[DEV] Extension %ls bypasses trust check (allowed in dev/debug build)",
                     filePath.c_str());
-        if (reasonOut) *reasonOut = L"Chế độ phát triển (Development): Bỏ qua kiểm tra chữ ký số.";
+        if (reasonOut) *reasonOut = L"Chế độ phát triển (Development): Bỏ qua kiểm tra tiện ích.";
         return ExtensionTrustResult::DevBypass;
 #else
         NEXTKEY_LOG(L"ExtensionTrust: verification failed for %ls (status=0x%lx)",
                     filePath.c_str(), status);
-        if (reasonOut) {
-            *reasonOut = L"Tệp tiện ích mở rộng không có chữ ký số chính thức hoặc đã bị thay đổi.";
-        }
+        if (reasonOut) *reasonOut = L"Tệp tiện ích không khớp phiên bản VKey hoặc đã bị thay đổi.";
         return ExtensionTrustResult::SignatureInvalid;
 #endif
 
@@ -173,8 +192,8 @@ ExtensionTrustResult VerifyExtensionBinary(
     }
 }
 
-bool IsExtensionTrusted(const std::wstring& filePath) noexcept {
-    const auto result = VerifyExtensionBinary(filePath, nullptr);
+bool IsExtensionTrusted(const std::wstring& filePath, ExtensionBinary binary) noexcept {
+    const auto result = VerifyExtensionBinary(filePath, binary, nullptr);
     return result == ExtensionTrustResult::Trusted || result == ExtensionTrustResult::DevBypass;
 }
 

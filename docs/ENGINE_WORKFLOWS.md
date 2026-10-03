@@ -181,6 +181,8 @@ workflow validates the public tree and assets, builds Sciter with the pinned
 engine, runs tests and the tampered-engine rejection check, then publishes only:
 
 - `VKey.zip` and `VKey-x64.zip`, with SHA-256 sidecars and GitHub attestations;
+- `VKeyWatchdog.exe` and `VKeyBrowserHost.exe` as separate assets, each with a
+  SHA-256 sidecar;
 - `vkey_engine.dll`, its detached signature, both SHA-256 sidecars, and its
   separate license notice.
 
@@ -221,10 +223,11 @@ and `release-signing` policy, then set it to exactly `true`. Production then:
 3. submits only the three-file Foundation artifact to `release-signing`;
 4. requires valid `CN=SignPath Foundation` signatures, timestamps, an exact file
    inventory, and no Sciter/Rust imports;
-5. adds separately built, unsigned `VKeyBrowserHost.exe` plus
-   `THIRD_PARTY_NOTICES.txt` to the final Classic package;
-6. enforces the five-file package allowlist, then archives, checksums, and attests
-   both Classic ZIP names;
+5. keeps `THIRD_PARTY_NOTICES.txt` in the three-file Classic ZIP, while staging
+   the signed watchdog and separately built unsigned browser host as independent
+   `VKeyClassicWatchdog.exe` and `VKeyClassicBrowserHost.exe` release assets;
+6. enforces the three-file ZIP allowlist, then archives, checksums, and attests
+   both Classic ZIP names and both companion assets;
 7. attaches assets only to the existing tag Release and refuses to overwrite a
    different existing asset, after rechecking the tag and `Main` following final
    approval, then updates the Classic WinGet package.
