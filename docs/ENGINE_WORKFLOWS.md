@@ -198,11 +198,11 @@ workflow validates the public tree and assets, builds Sciter with the pinned
 engine and Classic in a separate Rust-OFF tree, runs each edition's tests and
 the Sciter tampered-engine rejection check, then publishes:
 
-- `VKey.zip` and `VKey-x64.zip`, with SHA-256 sidecars and GitHub attestations;
+- `VKey-x64.zip`, with SHA-256 sidecar and GitHub attestation;
 - `VKeyWatchdog.exe` and `VKeyBrowserHost.exe` as separate assets, each with a
   SHA-256 sidecar;
-- `VKeyClassic.zip` and `VKeyClassic-x64.zip`, with SHA-256 sidecars and GitHub
-  attestations; each ZIP contains only `VKeyClassic.exe`, its own `VKeyTSF.dll`,
+- `VKeyClassic-x64.zip`, with SHA-256 sidecar and GitHub attestation;
+  each ZIP contains only `VKeyClassic.exe`, its own `VKeyTSF.dll`,
   and `THIRD_PARTY_NOTICES.txt`;
 - `VKeyClassicWatchdog.exe` and `VKeyClassicBrowserHost.exe` as separate assets,
   each with a SHA-256 sidecar;

@@ -45,8 +45,8 @@ Cả Sciter và Classic v4.3 đều không có chữ ký Authenticode, nên các
 repo này:
 
 ```bash
-gh attestation verify VKey.zip --repo PhatMT97/VKey
-gh attestation verify VKeyClassic.zip --repo PhatMT97/VKey
+gh attestation verify VKey-x64.zip --repo PhatMT97/VKey
+gh attestation verify VKeyClassic-x64.zip --repo PhatMT97/VKey
 ```
 
 Nếu lệnh trên báo lỗi → **không** dùng file đó, tải lại từ trang phát hành chính thức.
@@ -147,8 +147,8 @@ autostart, and self-supervise — a cluster that looks keylogger-shaped. It is a
 **false positive**; VKey processes everything locally and never sends your
 keystrokes anywhere. An unsigned build is more likely to trip these heuristics.
 
-- **Verify authenticity:** `gh attestation verify VKey.zip --repo PhatMT97/VKey`
-  or `gh attestation verify VKeyClassic.zip --repo PhatMT97/VKey`
+- **Verify authenticity:** `gh attestation verify VKey-x64.zip --repo PhatMT97/VKey`
+  or `gh attestation verify VKeyClassic-x64.zip --repo PhatMT97/VKey`
   (Sigstore build attestation; it does not replace Authenticode or remove
   SmartScreen warnings). On past v4.0–v4.2 releases you can additionally check
   `(Get-AuthenticodeSignature VKey.exe).SignerCertificate.Subject` →

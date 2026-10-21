@@ -562,8 +562,7 @@ jobs:
             $actual | Write-Output
             throw "Sciter release package differs from the four-file allowlist"
           }
-          Compress-Archive -Path "dist/*" -DestinationPath VKey.zip
-          Copy-Item VKey.zip VKey-x64.zip -Force
+          Compress-Archive -Path "dist/*" -DestinationPath VKey-x64.zip
 
       - name: Zip Classic Release
         if: startsWith(github.ref, 'refs/tags/') && needs.build-classic.result == 'success'
@@ -585,8 +584,7 @@ jobs:
             $actual | Write-Output
             throw "Classic release package differs from the three-file allowlist"
           }
-          Compress-Archive -Path "dist-classic/*" -DestinationPath VKeyClassic.zip
-          Copy-Item VKeyClassic.zip VKeyClassic-x64.zip -Force
+          Compress-Archive -Path "dist-classic/*" -DestinationPath VKeyClassic-x64.zip
 
       # --- SHA-256 checksums ---
       - name: Generate SHA-256 checksums
@@ -597,13 +595,11 @@ jobs:
           # Format: "<hash>  <filename>" (GNU coreutils sha256sum compatible)
           $files = @()
           if ("${{ needs.build-sciter.result }}" -eq "success") {
-            $files += "VKey.zip"
             $files += "VKey-x64.zip"
             $files += "VKeyBrowserHost.exe"
             $files += "VKeyWatchdog.exe"
           }
           if ("${{ needs.build-classic.result }}" -eq "success") {
-            $files += "VKeyClassic.zip"
             $files += "VKeyClassic-x64.zip"
             $files += "VKeyClassicBrowserHost.exe"
             $files += "VKeyClassicWatchdog.exe"
@@ -623,16 +619,12 @@ jobs:
           name: standard-release-assets-${{ github.ref_name }}
           path: |
             RELEASE_NOTES.md
-            VKey.zip
-            VKey.zip.sha256
             VKey-x64.zip
             VKey-x64.zip.sha256
             VKeyBrowserHost.exe
             VKeyBrowserHost.exe.sha256
             VKeyWatchdog.exe
             VKeyWatchdog.exe.sha256
-            VKeyClassic.zip
-            VKeyClassic.zip.sha256
             VKeyClassic-x64.zip
             VKeyClassic-x64.zip.sha256
             VKeyClassicBrowserHost.exe
@@ -734,16 +726,12 @@ jobs:
           $root = Join-Path $env:RUNNER_TEMP "release-assets"
           $expected = @(
             "RELEASE_NOTES.md",
-            "VKey.zip",
-            "VKey.zip.sha256",
             "VKey-x64.zip",
             "VKey-x64.zip.sha256",
             "VKeyBrowserHost.exe",
             "VKeyBrowserHost.exe.sha256",
             "VKeyWatchdog.exe",
             "VKeyWatchdog.exe.sha256",
-            "VKeyClassic.zip",
-            "VKeyClassic.zip.sha256",
             "VKeyClassic-x64.zip",
             "VKeyClassic-x64.zip.sha256",
             "VKeyClassicBrowserHost.exe",
@@ -765,15 +753,13 @@ jobs:
           if ($directories.Count -ne 0 -or (Compare-Object $expected $actual)) {
             $directories.FullName | Write-Output
             $actual | Write-Output
-            throw "Release artifact differs from the twenty-two-file allowlist"
+            throw "Release artifact differs from the eighteen-file allowlist"
           }
 
           foreach ($name in @(
-            "VKey.zip",
             "VKey-x64.zip",
             "VKeyBrowserHost.exe",
             "VKeyWatchdog.exe",
-            "VKeyClassic.zip",
             "VKeyClassic-x64.zip",
             "VKeyClassicBrowserHost.exe",
             "VKeyClassicWatchdog.exe",
@@ -794,9 +780,7 @@ jobs:
 
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           $packageEntries = @{
-            "VKey.zip" = @("THIRD_PARTY_NOTICES.txt", "VKey.exe", "VKeyTSF.dll", "sciter.dll")
             "VKey-x64.zip" = @("THIRD_PARTY_NOTICES.txt", "VKey.exe", "VKeyTSF.dll", "sciter.dll")
-            "VKeyClassic.zip" = @("THIRD_PARTY_NOTICES.txt", "VKeyClassic.exe", "VKeyTSF.dll")
             "VKeyClassic-x64.zip" = @("THIRD_PARTY_NOTICES.txt", "VKeyClassic.exe", "VKeyTSF.dll")
           }
           foreach ($archiveName in $packageEntries.Keys) {
@@ -849,7 +833,7 @@ jobs:
             $existing = @()
             if ($LASTEXITCODE -eq 0) { $existing = @(($releaseJson | ConvertFrom-Json).assets.name) }
             $global:LASTEXITCODE = 0
-            $packages = [ordered]@{ "VKey.zip" = 1; "VKey-x64.zip" = 1; "VKeyClassic.zip" = 2; "VKeyClassic-x64.zip" = 2 }
+            $packages = [ordered]@{ "VKey-x64.zip" = 1; "VKeyClassic-x64.zip" = 2 }
             foreach ($package in $packages.GetEnumerator()) {
               $name = $package.Key
               $digest = [Convert]::FromHexString((Get-FileHash (Join-Path $root $name) -Algorithm SHA256).Hash)
@@ -881,13 +865,9 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: |
-            ${{ runner.temp }}/release-assets/VKey.zip
             ${{ runner.temp }}/release-assets/VKey-x64.zip
-            ${{ runner.temp }}/release-assets/VKeyClassic.zip
             ${{ runner.temp }}/release-assets/VKeyClassic-x64.zip
-            ${{ runner.temp }}/release-assets/VKey.zip.sig
             ${{ runner.temp }}/release-assets/VKey-x64.zip.sig
-            ${{ runner.temp }}/release-assets/VKeyClassic.zip.sig
             ${{ runner.temp }}/release-assets/VKeyClassic-x64.zip.sig
 
       - name: Attest edition-specific companions
@@ -953,15 +933,11 @@ jobs:
           # Preflight every same-name asset before changing the Release. Reruns
           # are idempotent only when existing bytes are identical.
           $assets = @(
-            "VKey.zip.sig",
             "VKey-x64.zip.sig",
-            "VKeyClassic.zip.sig",
             "VKeyClassic-x64.zip.sig",
-            "VKey.zip.sha256",
             "VKey-x64.zip.sha256",
             "VKeyBrowserHost.exe.sha256",
             "VKeyWatchdog.exe.sha256",
-            "VKeyClassic.zip.sha256",
             "VKeyClassic-x64.zip.sha256",
             "VKeyClassicBrowserHost.exe.sha256",
             "VKeyClassicWatchdog.exe.sha256",
@@ -969,11 +945,9 @@ jobs:
             "vkey_engine.dll.sig.sha256",
             "vkey_engine.dll.sig",
             "vkey_engine.LICENSE.txt",
-            "VKey.zip",
             "VKey-x64.zip",
             "VKeyBrowserHost.exe",
             "VKeyWatchdog.exe",
-            "VKeyClassic.zip",
             "VKeyClassic-x64.zip",
             "VKeyClassicBrowserHost.exe",
             "VKeyClassicWatchdog.exe",
@@ -1022,10 +996,55 @@ jobs:
           "asset-manifest=$($manifest | ConvertTo-Json -Compress)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Draft ready for scanning and final publication review."
 
+  virustotal-scan:
+    name: Scan release assets with VirusTotal
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [validate, publish-release]
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the validated source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate.outputs.source-sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          submodules: false
+
+      - name: Download release assets to scan
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "vt-scan-assets"
+          & gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY `
+            --pattern "VKey-x64.zip" `
+            --pattern "VKeyClassic-x64.zip" `
+            --pattern "vkey_engine.dll" `
+            --dir $root
+          if ($LASTEXITCODE -ne 0) { throw "Failed to download assets for VirusTotal scanning" }
+
+      - name: Run VirusTotal scanner & update release
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+        run: |
+          python tools/virustotal_scan.py \
+            --dir "$RUNNER_TEMP/vt-scan-assets" \
+            --tag "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY"
+
   finalize-release:
     name: Publish the reviewed draft release
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [validate, publish-release]
+    needs: [validate, publish-release, virustotal-scan]
     runs-on: windows-2022
     environment:
       name: vkey-release-publication
@@ -1054,7 +1073,7 @@ jobs:
           $tagSha = & git rev-list -n 1 "refs/tags/$env:RELEASE_TAG"
           if ($LASTEXITCODE -ne 0 -or $tagSha.Trim() -ne $env:EXPECTED_SHA) { throw "Release tag changed after staging" }
           $expected = $env:EXPECTED_ASSETS | ConvertFrom-Json -AsHashtable
-          if ($expected.Count -ne 25) { throw "Staged release manifest is incomplete" }
+          if ($expected.Count -ne 19) { throw "Staged release manifest is incomplete" }
           $root = Join-Path $env:RUNNER_TEMP "publication-check"
           & gh release download $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --dir $root
           if ($LASTEXITCODE -ne 0) { throw "Cannot download the staged release" }

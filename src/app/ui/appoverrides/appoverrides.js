@@ -40,8 +40,25 @@ var sendMethodLabels = {
     2: "Firefox",
     3: "Cloud/Remote",
     4: "Thay thế trực tiếp",
-    5: "Chế độ game"
+    5: "Chế độ game",
+    6: "WebView App"
 };
+
+var sendMethodLabelsEn = {
+    "-1": "Default",
+    1: "Clipboard",
+    2: "Firefox",
+    3: "Cloud/Remote",
+    4: "Direct replace",
+    5: "Game mode",
+    6: "WebView App"
+};
+
+function getSendMethodLabel(sndKey) {
+    var isEn = (typeof getLang === "function" && getLang() === "en");
+    var map = isEn ? sendMethodLabelsEn : sendMethodLabels;
+    return map[sndKey] || "-";
+}
 
 // ===== Running Apps Dropdown =====
 function initRunningAppsDropdown() {
@@ -224,7 +241,7 @@ function addAppToList(appName, inputMethod, encodingOverride, sendMethod) {
     var sendSpan = document.createElement("span");
     sendSpan.className = "app-item-sendmethod";
     var sndKey = (sendMethod === undefined || sendMethod === null) ? "-1" : String(sendMethod);
-    sendSpan.textContent = sendMethodLabels[sndKey] || "-";
+    sendSpan.textContent = getSendMethodLabel(sndKey);
     item.appendChild(sendSpan);
 
     // Delete button (uses event delegation, no inline handler)

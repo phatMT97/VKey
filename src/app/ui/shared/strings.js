@@ -223,6 +223,13 @@ var STRINGS = {
         "ao.list_encoding": "Encoding",
         "ao.list_sendmethod": "Send method",
         "ao.app_ph": "e.g.: myapp.exe",
+        "ao.sm_default": "Default",
+        "ao.sm_clipboard": "Clipboard",
+        "ao.sm_firefox": "Firefox compatible",
+        "ao.sm_remote": "Cloud/Remote compatible",
+        "ao.sm_em_replace": "Direct replace (EM_REPLACESEL)",
+        "ao.sm_game": "Game mode (hold keys for games)",
+        "ao.sm_webview": "WebView App compatible",
 
         // ── User Defined Input dialog ──
         "ud.title": "User-defined Input Method",

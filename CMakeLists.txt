@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(VKey VERSION 4.3.1 LANGUAGES CXX)
+project(VKey VERSION 4.3.2 LANGUAGES CXX)
 
 # Generate Version.h from Version.h.in — version is defined once in project() above.
 configure_file(
@@ -632,7 +632,9 @@ if(VKEY_USE_RUST_ENGINE)
     target_compile_definitions(VKeyApp PRIVATE VKEY_USE_RUST_ENGINE)
 endif()
 target_link_libraries(VKeyApp PRIVATE VKeyCore)
-add_dependencies(VKeyApp VKeyExtensionHashes)
+if(TARGET VKeyExtensionHashes)
+    add_dependencies(VKeyApp VKeyExtensionHashes)
+endif()
 target_include_directories(VKeyApp PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
 set_target_properties(VKeyApp PROPERTIES OUTPUT_NAME "VKey")
 if(MSVC)

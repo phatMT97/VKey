@@ -166,7 +166,7 @@ xử lý lỗi tại [docs/BROWSER_EXTENSION.md](docs/BROWSER_EXTENSION.md).
 
 Để cập nhật thủ công:
 
-1. Tải `VKey.zip` / `VKey-x64.zip` (Sciter) hoặc `VKeyClassic.zip` / `VKeyClassic-x64.zip` (Classic) từ [Releases chính thức](https://github.com/phatMT97/VKey/releases) và [xác minh bản tải](#xác-minh-bản-tải-verify-release).
+1. Tải `VKey-x64.zip` (Sciter) hoặc `VKeyClassic-x64.zip` (Classic) từ [Releases chính thức](https://github.com/phatMT97/VKey/releases) và [xác minh bản tải](#xác-minh-bản-tải-verify-release).
 2. Thoát VKey đang chạy, giải nén gói mới vào thư mục riêng, rồi chạy `VKey.exe` (Sciter) hoặc `VKeyClassic.exe` (Classic) trong thư mục đó. Không trộn file của hai bản vào cùng thư mục.
 
 Các bản v4.0–v4.2 trước đó được ký Authenticode bởi SignPath Foundation.
@@ -179,13 +179,13 @@ Các ZIP v4.3.1 có [build attestation](https://docs.github.com/en/actions/secur
 
 ```bash
 # Xác minh bản Sciter
-gh attestation verify VKey.zip --repo PhatMT97/VKey
+gh attestation verify VKey-x64.zip --repo PhatMT97/VKey
 
 # Xác minh bản Classic
-gh attestation verify VKeyClassic.zip --repo PhatMT97/VKey
+gh attestation verify VKeyClassic-x64.zip --repo PhatMT97/VKey
 ```
 
-> **Lưu ý:** Attestation Sigstore ở trên xác minh nguồn gốc cả hai bản **Sciter và Classic v4.3**; với Classic, thay `VKey.zip` bằng `VKeyClassic.zip` trong lệnh xác minh. Attestation không thay thế chữ ký Authenticode và không gỡ cảnh báo SmartScreen. Từ v4.3.1, updater xác minh chữ ký riêng của gói ZIP; attestation dùng để người dùng kiểm tra nguồn gốc build. Cả `VKey.exe` và `VKeyClassic.exe` v4.3 đều có trạng thái `NotSigned`. Phương án ký Classic vẫn chờ phê duyệt lại. Các bản v4.0–v4.2 có ký Authenticode với publisher `CN=SignPath Foundation`.
+> **Lưu ý:** Attestation Sigstore ở trên xác minh nguồn gốc cả hai bản **Sciter và Classic**; với Classic, thay `VKey-x64.zip` bằng `VKeyClassic-x64.zip` trong lệnh xác minh. Attestation không thay thế chữ ký Authenticode và không gỡ cảnh báo SmartScreen. Từ v4.3.1, updater xác minh chữ ký riêng của gói ZIP; attestation dùng để người dùng kiểm tra nguồn gốc build. Cả `VKey.exe` và `VKeyClassic.exe` đều có trạng thái `NotSigned`. Phương án ký Classic vẫn chờ phê duyệt lại. Các bản v4.0–v4.2 có ký Authenticode với publisher `CN=SignPath Foundation`.
 >
 > Một số phần mềm diệt virus có thể cảnh báo VKey theo **hành vi** như hook bàn phím và gửi phím; bản chưa ký dễ bị cảnh báo hơn. Xem **[kết quả VirusTotal v4.3.1](https://github.com/phatMT97/VKey/releases/tag/v4.3.1)** cho ZIP, EXE của cả hai bản và DLL engine, gồm số engine cảnh báo, tên phát hiện và thời điểm quét. Hướng dẫn xử lý cảnh báo: **[docs/ANTIVIRUS.md](docs/ANTIVIRUS.md)**.
 
@@ -340,7 +340,7 @@ winget install PhatMT97.VKey.Classic
 >
 > **v4.3.1 replaces the withdrawn v4.3.0 release (2026-10-21)** to fix incorrect update results, watchdog restarts after Quit, and engine signature downloads. If you downloaded the earlier v4.3.0 build, download the ZIP again and install manually. Disable the old watchdog before exiting; if it is already restarting VKey repeatedly, end both `VKeyWatchdog.exe` and `VKey.exe` in Task Manager.
 >
-> Windows SmartScreen or antivirus software may warn, block execution, or quarantine files. **Automatic updates from v4.3.1 use project-signed ZIP packages**, binding their contents, version and edition without requiring Authenticode. **Upgrading from v4.2 or the withdrawn v4.3.0 requires one manual installation** because the old updater still pins SignPath Foundation. Subsequent updates use the new package signature mechanism. Download `VKey.zip` / `VKey-x64.zip` (Sciter) or `VKeyClassic.zip` / `VKeyClassic-x64.zip` (Classic) from the official [Releases](https://github.com/phatMT97/VKey/releases), verify its attestation, exit VKey, extract to a separate folder, and run the new `VKey.exe` or `VKeyClassic.exe`. Keep the two editions in separate folders. For Classic attestation verification, replace `VKey.zip` with `VKeyClassic.zip` in the command above. Sigstore attestations verify provenance but do not replace Authenticode or remove SmartScreen warnings. Releases v4.0–v4.2 were Authenticode-signed. VirusTotal reports for both editions and the optional engine DLL, including detection counts and scan times, are linked in the [v4.3.1 release notes](https://github.com/phatMT97/VKey/releases/tag/v4.3.1).
+> Windows SmartScreen or antivirus software may warn, block execution, or quarantine files. **Automatic updates from v4.3.1 use project-signed ZIP packages**, binding their contents, version and edition without requiring Authenticode. **Upgrading from v4.2 or the withdrawn v4.3.0 requires one manual installation** because the old updater still pins SignPath Foundation. Subsequent updates use the new package signature mechanism. Download `VKey-x64.zip` (Sciter) or `VKeyClassic-x64.zip` (Classic) from the official [Releases](https://github.com/phatMT97/VKey/releases), verify its attestation, exit VKey, extract to a separate folder, and run the new `VKey.exe` or `VKeyClassic.exe`. Keep the two editions in separate folders. For Classic attestation verification, replace `VKey-x64.zip` with `VKeyClassic-x64.zip` in the command above. Sigstore attestations verify provenance but do not replace Authenticode or remove SmartScreen warnings. Releases v4.0–v4.2 were Authenticode-signed. VirusTotal reports for both editions and the optional engine DLL, including detection counts and scan times, are linked in the [v4.3.1 release notes](https://github.com/phatMT97/VKey/releases/tag/v4.3.1).
 
 ### Building
 

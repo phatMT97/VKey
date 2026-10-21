@@ -200,6 +200,7 @@ void ClassicAppOverridesDialog::CreateControls() {
     ComboBox_AddString(comboSendMethod_, L"Tương thích Cloud/Remote");
     ComboBox_AddString(comboSendMethod_, L"Thay thế trực tiếp (EM_REPLACESEL)");
     ComboBox_AddString(comboSendMethod_, L"Chế độ game (giữ phím cho game)");
+    ComboBox_AddString(comboSendMethod_, L"Tương thích WebView App");
     ComboBox_SetCurSel(comboSendMethod_, 0);
 
     int deleteW = Dpi(70);
@@ -239,6 +240,7 @@ static const wchar_t* SendMethodName(int8_t m) {
         case 3: return L"Cloud/Remote";
         case 4: return L"Thay thế trực tiếp";
         case 5: return L"Chế độ game";
+        case 6: return L"WebView App";
         default: return L"Mặc định";
     }
 }
