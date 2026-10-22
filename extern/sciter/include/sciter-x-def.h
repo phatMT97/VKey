@@ -734,7 +734,7 @@ SBOOL SCAPI SciterRenderOnDirectXTexture(HWINDOW hwnd, HELEMENT elementToRenderO
 #endif
 
 typedef enum SCITER_CREATE_WINDOW_FLAGS {
-   SW_CHILD      = (1 << 0), // child window only, if this flag is set all other flags ignored
+   //SW_CHILD      = (1 << 0), // child window only, if this flag is set all other flags ignored - not anymore supported, use mix-in mode,
    //SW_TITLEBAR   = (1 << 1), // toplevel window, has titlebar
    //SW_RESIZEABLE = (1 << 2), // has resizeable frame
    //SW_TOOL       = (1 << 3), // is tool window
@@ -742,7 +742,7 @@ typedef enum SCITER_CREATE_WINDOW_FLAGS {
    //SW_GLASSY     = (1 << 5), // glassy window - supports "Acrylic" on Windows and "Vibrant" on MacOS. 
    //SW_ALPHA      = (1 << 6), // transparent window ( e.g. WS_EX_LAYERED on Windows )
    SW_MAIN       = (1 << 7), // main window of the app, will terminate the app on close
-   SW_POPUP      = (1 << 8), // the window is created as topmost window.
+   SW_POPUP      = (1 << 8), // the window is created as a topmost window.
    SW_ENABLE_DEBUG = (1 << 9), // make this window inspector ready
    //SW_OWNS_VM      = (1 << 10), // it has its own script VM
 } SCITER_CREATE_WINDOW_FLAGS;

@@ -124,10 +124,11 @@ namespace sciter
       }
     }
     bool initial_window_state_defined = false;
+    
     bool handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params) override {
       if (params.cmd == DOCUMENT_PARSED && params.heTarget == root())
         initial_window_state_defined = sciter::dom::element(root()).get_attribute("window-state").length() != 0;
-      return false;
+      return event_handler_raw::handle_event(he, params);
     }
 
   protected:

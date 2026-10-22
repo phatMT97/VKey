@@ -120,6 +120,7 @@ namespace sciter
           case SC_ENGINE_DESTROYED:   return static_cast<BASE*>(this)->on_engine_destroyed();
           case SC_POSTED_NOTIFICATION: return static_cast<BASE*>(this)->on_posted_notification((LPSCN_POSTED_NOTIFICATION)pnm);
           case SC_GRAPHICS_CRITICAL_FAILURE: static_cast<BASE*>(this)->on_graphics_critical_failure(); return 0;
+          case SC_INVALIDATE_RECT: static_cast<BASE*>(this)->on_invalidate_rect(((LPSCN_INVALIDATE_RECT)pnm)->invalidRect); return 0;
         }
         return 0;
       }
@@ -180,6 +181,7 @@ namespace sciter
       virtual LRESULT on_attach_behavior( LPSCN_ATTACH_BEHAVIOR lpab ) { return create_behavior(lpab); }
       virtual LRESULT on_engine_destroyed( ) { return 0; }
       virtual LRESULT on_posted_notification( LPSCN_POSTED_NOTIFICATION lpab ) { return 0; }
+      virtual LRESULT on_invalidate_rect(RECT invalidRect) { return 0; }
 
       virtual void on_graphics_critical_failure()
       {
