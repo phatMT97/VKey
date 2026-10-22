@@ -10,6 +10,12 @@ Sửa lỗi tương thích bộ gõ tiếng Việt trong các ứng dụng WebVi
 - **Thêm kiểu gửi "Tương thích WebView App" (`send_method = 6`):**
   - Bổ sung hồ sơ cấu hình mới trong danh sách **Cách gửi** (Cấu hình từng ứng dụng / App Overrides) dành riêng cho ứng dụng WebView2 / Tauri. Nếu bị mất chữ khi gõ, có thể thử cấu hình này
 
+#### Cập nhật sciter fix các lỗi liên quan tới giao diện
+
+- Sửa lỗi bảng điều khiển bị khoá kích thước và không scroll được ([#259](https://github.com/phatMT97/VKey/issues/259))
+- Sửa lỗi hiển thị khi mở lại từ cửa sổ thu nhỏ ([#258](https://github.com/phatMT97/VKey/issues/258))
+
+
 ### Kết quả VirusTotal (v4.3.2)
 
 Các gói đang được dựng; kết quả quét VirusTotal theo đúng SHA-256 sẽ được cập nhật sau khi hoàn tất bản phát hành trên GitHub Releases. Xem [hướng dẫn kiểm tra bản tải](https://github.com/phatMT97/VKey/blob/Main/docs/ANTIVIRUS.md).
