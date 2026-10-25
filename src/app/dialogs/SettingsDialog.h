@@ -128,6 +128,7 @@ private:
     bool isExpanded_ = false;
     bool isPinned_ = false;
     bool forceLightTheme_ = false;
+    bool wasMinimized_ = false; // Track minimization to force repaint on restore
 
     // #226: cached result of measureMaxAdvancedContentHeight(), computed once the
     // first time the Advanced panel is actually shown (measuring needs the panel's

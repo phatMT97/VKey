@@ -93,8 +93,9 @@ namespace SciterHelper {
 
     /**
      * Force a Sciter popup/main window to appear on the taskbar with the app icon.
-     * Removes WS_EX_TOOLWINDOW, adds WS_EX_APPWINDOW, applies SWP_FRAMECHANGED,
-     * and sets WM_SETICON from IDI_APP. Call AFTER all expand() calls.
+     * Removes WS_EX_TOOLWINDOW, adds WS_EX_APPWINDOW, ensures WS_MINIMIZEBOX and
+     * WS_SYSMENU styles so clicking the taskbar button minimizes/restores the window,
+     * applies SWP_FRAMECHANGED, and sets WM_SETICON from IDI_APP. Call AFTER all expand() calls.
      *
      * @param hwnd Window handle
      * @param iconId Resource ID for the window icon (e.g. IDI_APP)
@@ -102,7 +103,8 @@ namespace SciterHelper {
     void ForceTaskbarPresence(HWND hwnd, int iconId) noexcept;
 
     /**
-     * Filter WM_STYLECHANGING to prevent Sciter from re-adding WS_EX_TOOLWINDOW.
+     * Filter WM_STYLECHANGING to prevent Sciter from re-adding WS_EX_TOOLWINDOW
+     * and ensure WS_MINIMIZEBOX / WS_SYSMENU are retained.
      * Call from SubclassProc. Modifies styleNew in-place; caller should fall through
      * to DefSubclassProc to propagate the corrected style.
      *

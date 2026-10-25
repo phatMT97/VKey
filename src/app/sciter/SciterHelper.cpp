@@ -104,6 +104,11 @@ void ForceTaskbarPresence(HWND hwnd, int iconId) noexcept {
     ex &= ~WS_EX_TOOLWINDOW;
     ex |= WS_EX_APPWINDOW;
     SetWindowLongW(hwnd, GWL_EXSTYLE, ex);
+
+    LONG style = GetWindowLongW(hwnd, GWL_STYLE);
+    style |= WS_MINIMIZEBOX | WS_SYSMENU;
+    SetWindowLongW(hwnd, GWL_STYLE, style);
+
     SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
 
@@ -115,12 +120,18 @@ void ForceTaskbarPresence(HWND hwnd, int iconId) noexcept {
 }
 
 bool GuardTaskbarStyle(WPARAM wParam, LPARAM lParam) noexcept {
-    if (wParam != GWL_EXSTYLE) return false;
-
-    auto* pss = reinterpret_cast<STYLESTRUCT*>(lParam);
-    pss->styleNew &= ~WS_EX_TOOLWINDOW;
-    pss->styleNew |= WS_EX_APPWINDOW;
-    return true;
+    if (wParam == GWL_EXSTYLE) {
+        auto* pss = reinterpret_cast<STYLESTRUCT*>(lParam);
+        pss->styleNew &= ~WS_EX_TOOLWINDOW;
+        pss->styleNew |= WS_EX_APPWINDOW;
+        return true;
+    }
+    if (wParam == GWL_STYLE) {
+        auto* pss = reinterpret_cast<STYLESTRUCT*>(lParam);
+        pss->styleNew |= WS_MINIMIZEBOX | WS_SYSMENU;
+        return true;
+    }
+    return false;
 }
 
 }  // namespace SciterHelper

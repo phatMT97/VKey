@@ -325,6 +325,41 @@ LRESULT CALLBACK SettingsDialog::SubclassProc(
         return 0;
     }
 
+    // Handle window restore from minimized: force Sciter to repaint
+    if (msg == WM_SIZE) {
+        if (wParam == SIZE_MINIMIZED) {
+            if (s_instance) {
+                s_instance->wasMinimized_ = true;
+            }
+        } else if (wParam == SIZE_RESTORED) {
+            if (s_instance && s_instance->wasMinimized_) {
+                s_instance->wasMinimized_ = false;
+                sciter::dom::element rootEl = s_instance->get_root();
+                if (rootEl.is_valid()) {
+                    rootEl.set_attribute("force-paint", L"1");
+                    rootEl.update(false);
+                    rootEl.remove_attribute("force-paint");
+                    rootEl.update(false);
+                }
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+        }
+    }
+
+    if (msg == WM_SHOWWINDOW && wParam == TRUE) {
+        if (s_instance && s_instance->wasMinimized_) {
+            s_instance->wasMinimized_ = false;
+            sciter::dom::element rootEl = s_instance->get_root();
+            if (rootEl.is_valid()) {
+                rootEl.set_attribute("force-paint", L"1");
+                rootEl.update(false);
+                rootEl.remove_attribute("force-paint");
+                rootEl.update(false);
+            }
+            InvalidateRect(hwnd, nullptr, FALSE);
+        }
+    }
+
     // Handle timer for window resize after CSS transition
     if (msg == WM_TIMER && wParam == TIMER_RESIZE_WINDOW) {
         KillTimer(hwnd, TIMER_RESIZE_WINDOW);
