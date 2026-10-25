@@ -16,6 +16,7 @@ Sửa lỗi tương thích bộ gõ tiếng Việt trong các ứng dụng WebVi
 - Sửa lỗi hiển thị khi mở lại từ cửa sổ thu nhỏ ([#258](https://github.com/phatMT97/VKey/issues/258))
 - Hỗ trợ thu nhỏ (minimize) cửa sổ cài đặt và các hộp thoại khi click vào biểu tượng ứng dụng trên thanh tác vụ (Taskbar).
 
+#### Sửa lỗi không tự khởi động khi bật "Chạy với quyền Administrator" 
 
 ### Kết quả VirusTotal (v4.3.2)
 

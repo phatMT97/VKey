@@ -183,18 +183,13 @@ inline void RemoveRegistryStartup() noexcept {
     wchar_t exePath[MAX_PATH] = {};
     GetModuleFileNameW(nullptr, exePath, MAX_PATH);
 
-    // Get current username BEFORE elevation — ensures task triggers for the
-    // logged-in user, not the admin account used for UAC elevation.
-    wchar_t username[256] = {};
-    DWORD usernameSize = 256;
-    GetUserNameW(username, &usernameSize);
-
     std::wstring exeStr(exePath);
     std::wstring dirStr = exeStr.substr(0, exeStr.find_last_of(L"\\/"));
 
     // Secure memory-only PowerShell script string (No %TEMP% XML files required -> 100% secure from TOCTOU)
     // Uses Cmdlets to fully configure Triggers, Actions, and disabled Battery constraints natively.
-    std::wstring ps1Args = L"-NoProfile -WindowStyle Hidden -Command \"";
+    std::wstring ps1Args = L"-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"";
+    ps1Args += L"$ErrorActionPreference = 'Stop'; ";
     // -Execute takes the BARE path. Task Scheduler stores it in the structured
     // <Command> field (launched as lpApplicationName, not a command line), so
     // embedded quotes would become literal path chars → 0x2 "cannot find the
@@ -204,7 +199,12 @@ inline void RemoveRegistryStartup() noexcept {
     ps1Args += L"$T = New-ScheduledTaskTrigger -AtLogOn; ";
     ps1Args += L"$T.Delay = 'PT5S'; ";
     ps1Args += L"$S = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0; ";
-    ps1Args += L"$P = New-ScheduledTaskPrincipal -UserId '" + EscapePowerShellSingleQuote(username) + L"' -LogonType Interactive -RunLevel Highest; ";
+    // Use BUILTIN\Administrators group principal rather than a specific -UserId.
+    // -UserId with GetUserNameW breaks on Microsoft Accounts (email truncation),
+    // domain accounts, and Windows Hello PIN/biometrics logons where Task Scheduler
+    // fails to resolve interactive credentials (issue #261). BUILTIN\Administrators
+    // dynamically executes for any local administrator who logs in interactively.
+    ps1Args += L"$P = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\\Administrators' -RunLevel Highest; ";
     ps1Args += L"Register-ScheduledTask -TaskName '" + std::wstring(STARTUP_TASK_NAME) + L"' -Action $A -Trigger $T -Settings $S -Principal $P -Force\"";
 
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
@@ -217,7 +217,7 @@ inline void RemoveRegistryStartup() noexcept {
     if (!ShellExecuteExW(&sei)) return false;
 
     if (sei.hProcess) {
-        WaitForSingleObject(sei.hProcess, 10000);  // PowerShell + Register-ScheduledTask can be slow
+        WaitForSingleObject(sei.hProcess, 15000);  // PowerShell + Register-ScheduledTask can be slow
         DWORD exitCode = 1;
         GetExitCodeProcess(sei.hProcess, &exitCode);
         CloseHandle(sei.hProcess);
@@ -244,22 +244,19 @@ inline void RemoveRegistryStartup() noexcept {
     const DWORD appLength = GetModuleFileNameW(nullptr, appPath, MAX_PATH);
     if (appLength == 0 || appLength >= MAX_PATH) return false;
 
-    // Get current username BEFORE elevation — ensures task triggers for the
-    // logged-in user, not the admin account used for UAC elevation.
-    wchar_t username[256] = {};
-    DWORD usernameSize = 256;
-    GetUserNameW(username, &usernameSize);
-
     // PowerShell registers the task. Watchdog runs at LIMITED RunLevel
     // (NOT Highest) — keeps AV calm, no UAC needed at logon.
-    std::wstring ps1Args = L"-NoProfile -WindowStyle Hidden -Command \"";
+    std::wstring ps1Args = L"-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"";
+    ps1Args += L"$ErrorActionPreference = 'Stop'; ";
     // Bare path — see CreateScheduledTaskElevated() (issue #210): quotes in the
     // <Command> field cause 0x2 "cannot find the file" at logon.
     ps1Args += L"$A = New-ScheduledTaskAction -Execute '" + EscapePowerShellSingleQuote(appPath) + L"' -Argument '" + WATCHDOG_TASK_FLAG + L"' -WorkingDirectory '" + EscapePowerShellSingleQuote(dirStr) + L"'; ";
     ps1Args += L"$T = New-ScheduledTaskTrigger -AtLogOn; ";
     ps1Args += L"$T.Delay = 'PT10S'; ";  // 10s after logon — let VKey come up first
     ps1Args += L"$S = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1); ";
-    ps1Args += L"$P = New-ScheduledTaskPrincipal -UserId '" + EscapePowerShellSingleQuote(username) + L"' -LogonType Interactive -RunLevel Limited; ";
+    // Use BUILTIN\Users group principal rather than a specific -UserId to ensure
+    // it triggers cleanly regardless of Microsoft Account / PIN authentication.
+    ps1Args += L"$P = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\\Users' -RunLevel Limited; ";
     ps1Args += L"Register-ScheduledTask -TaskName '" + std::wstring(WATCHDOG_TASK_NAME) + L"' -Action $A -Trigger $T -Settings $S -Principal $P -Force\"";
 
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
@@ -272,7 +269,7 @@ inline void RemoveRegistryStartup() noexcept {
     if (!ShellExecuteExW(&sei)) return false;
 
     if (sei.hProcess) {
-        WaitForSingleObject(sei.hProcess, 10000);
+        WaitForSingleObject(sei.hProcess, 15000);
         DWORD exitCode = 1;
         GetExitCodeProcess(sei.hProcess, &exitCode);
         CloseHandle(sei.hProcess);
