@@ -270,39 +270,10 @@ LRESULT CALLBACK SciterSubDialog::SubclassProc(
         (void)SciterHelper::GuardTaskbarStyle(wParam, lParam);
     }
 
-    // Handle window restore from minimized: force Sciter to repaint
-    if (msg == WM_SIZE) {
-        if (wParam == SIZE_MINIMIZED) {
-            if (s_instance) {
-                s_instance->wasMinimized_ = true;
-            }
-        } else if (wParam == SIZE_RESTORED) {
-            if (s_instance && s_instance->wasMinimized_) {
-                s_instance->wasMinimized_ = false;
-                sciter::dom::element rootEl = s_instance->get_root();
-                if (rootEl.is_valid()) {
-                    rootEl.set_attribute("force-paint", L"1");
-                    rootEl.update(false);
-                    rootEl.remove_attribute("force-paint");
-                    rootEl.update(false);
-                }
-                InvalidateRect(hwnd, nullptr, FALSE);
-            }
-        }
-    }
-
-    if (msg == WM_SHOWWINDOW && wParam == TRUE) {
-        if (s_instance && s_instance->wasMinimized_) {
-            s_instance->wasMinimized_ = false;
-            sciter::dom::element rootEl = s_instance->get_root();
-            if (rootEl.is_valid()) {
-                rootEl.set_attribute("force-paint", L"1");
-                rootEl.update(false);
-                rootEl.remove_attribute("force-paint");
-                rootEl.update(false);
-            }
-            InvalidateRect(hwnd, nullptr, FALSE);
-        }
+    // Handle window restore from minimized: force Sciter to repaint (#258)
+    if (s_instance
+        && SciterHelper::ConsumeRestoreFromMinimized(msg, wParam, s_instance->wasMinimized_)) {
+        SciterHelper::RepaintAfterRestore(hwnd);
     }
 
     if (msg == WM_CLOSE) {

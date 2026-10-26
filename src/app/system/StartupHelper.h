@@ -199,12 +199,15 @@ inline void RemoveRegistryStartup() noexcept {
     ps1Args += L"$T = New-ScheduledTaskTrigger -AtLogOn; ";
     ps1Args += L"$T.Delay = 'PT5S'; ";
     ps1Args += L"$S = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0; ";
-    // Use BUILTIN\Administrators group principal rather than a specific -UserId.
+    // Use the BUILTIN\Administrators group principal rather than a specific -UserId.
     // -UserId with GetUserNameW breaks on Microsoft Accounts (email truncation),
     // domain accounts, and Windows Hello PIN/biometrics logons where Task Scheduler
-    // fails to resolve interactive credentials (issue #261). BUILTIN\Administrators
+    // fails to resolve interactive credentials (issue #261). The group principal
     // dynamically executes for any local administrator who logs in interactively.
-    ps1Args += L"$P = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\\Administrators' -RunLevel Highest; ";
+    // Named by well-known SID: the group's display name is localized on some
+    // Windows editions (e.g. "Administratoren"), where 'BUILTIN\Administrators'
+    // does not resolve.
+    ps1Args += L"$P = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-544' -RunLevel Highest; ";
     ps1Args += L"Register-ScheduledTask -TaskName '" + std::wstring(STARTUP_TASK_NAME) + L"' -Action $A -Trigger $T -Settings $S -Principal $P -Force\"";
 
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
@@ -254,9 +257,10 @@ inline void RemoveRegistryStartup() noexcept {
     ps1Args += L"$T = New-ScheduledTaskTrigger -AtLogOn; ";
     ps1Args += L"$T.Delay = 'PT10S'; ";  // 10s after logon — let VKey come up first
     ps1Args += L"$S = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1); ";
-    // Use BUILTIN\Users group principal rather than a specific -UserId to ensure
-    // it triggers cleanly regardless of Microsoft Account / PIN authentication.
-    ps1Args += L"$P = New-ScheduledTaskPrincipal -GroupId 'BUILTIN\\Users' -RunLevel Limited; ";
+    // Use the BUILTIN\Users group principal (well-known SID, see
+    // CreateScheduledTaskElevated) rather than a specific -UserId to ensure it
+    // triggers cleanly regardless of Microsoft Account / PIN authentication.
+    ps1Args += L"$P = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited; ";
     ps1Args += L"Register-ScheduledTask -TaskName '" + std::wstring(WATCHDOG_TASK_NAME) + L"' -Action $A -Trigger $T -Settings $S -Principal $P -Force\"";
 
     SHELLEXECUTEINFOW sei = { sizeof(sei) };

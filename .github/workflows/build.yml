@@ -1035,6 +1035,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_REF_NAME: ${{ github.ref_name }}
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
+          PYTHONUTF8: "1"
         run: |
           python tools/virustotal_scan.py \
             --dir "$RUNNER_TEMP/vt-scan-assets" \

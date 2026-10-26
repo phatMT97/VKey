@@ -618,7 +618,10 @@ FocusClassification FocusOwner::Classify(HWND triggerHwnd,
     // `appSendMethodOverrides` map — RCU-published from the worker thread, so
     // this main-thread lookup is lock-free and immune to torn reads during a
     // TOML rebuild. Values: 1=Clipboard, 2=Firefox-compat split, 3=Cloud/Remote
-    // compat split, 5=game re-inject (0/absent = default Win32 batch path).
+    // compat split, 4=EM_REPLACESEL, 5=game re-inject, 6=WebView App split
+    // without bait (0/absent = default Win32 batch path). Auto-detected
+    // WebView2 hosts keep the bait; 6 is the per-app opt-out for hosts such as
+    // embedded terminals where the bait char is lost or leaks.
     bool forceNoBait = false;
     if (!cls.exeName.empty() && ctx.snap) {
         auto it = ctx.snap->appSendMethodOverrides.find(cls.exeName);
@@ -674,8 +677,8 @@ FocusClassification FocusOwner::Classify(HWND triggerHwnd,
                         isWebView2 = IsWebView2App(activeHwnd, exeFullPath);
                     }
                     if (isWebView2) {
-                        cls.localNeedBait = false;
-                        cls.localSkipEmpty = true;
+                        cls.localNeedBait = true;
+                        cls.localSkipEmpty = false;
                     }
                 }
             }

@@ -255,7 +255,11 @@ def update_github_release_notes(tag: str, repo: Optional[str], vt_markdown_block
 
     print(f"\n[*] Fetching release notes for tag '{tag}' via GitHub CLI...")
     try:
-        current_body = subprocess.check_output(gh_cmd, text=True, stderr=subprocess.PIPE)
+        # Release notes are UTF-8 Vietnamese; never decode with the locale
+        # code page (cp1252 on Windows runners).
+        current_body = subprocess.check_output(
+            gh_cmd, text=True, encoding="utf-8", stderr=subprocess.PIPE
+        )
     except subprocess.CalledProcessError as e:
         print(f"Error fetching release notes: {e.stderr}", file=sys.stderr)
         return False
@@ -269,7 +273,7 @@ def update_github_release_notes(tag: str, repo: Optional[str], vt_markdown_block
 
     if vt_pattern.search(current_body):
         print("  -> Existing VirusTotal section found in release notes. Replacing...")
-        updated_body = vt_pattern.sub(vt_markdown_block + "\n", current_body)
+        updated_body = vt_pattern.sub(lambda _m: vt_markdown_block + "\n", current_body)
     else:
         print("  -> VirusTotal section not found in release notes. Appending before trailer...")
         trailer_match = re.search(r"(\n---\s*\n\s*\[Xem các thay đổi)", current_body)
@@ -309,11 +313,13 @@ def resolve_files_to_scan(
     Resolve file paths and display names.
     Automatically extracts VKey.exe / VKeyClassic.exe from zip archives if missing.
     Order matches canonical VKey release notes:
-      1. VKey.zip
+      1. VKey-x64.zip
       2. VKey.exe
-      3. VKeyClassic.zip
+      3. VKeyClassic-x64.zip
       4. VKeyClassic.exe
       5. vkey_engine.dll
+    Legacy un-suffixed VKey.zip / VKeyClassic.zip are still accepted for
+    rescanning releases older than v4.3.2.
     """
     candidates: Dict[str, str] = {}
 
@@ -377,6 +383,12 @@ def resolve_files_to_scan(
 
 
 def main() -> int:
+    # Vietnamese report text must print on Windows consoles/pipes whose
+    # default encoding is cp1252.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     parser = argparse.ArgumentParser(description="Scan VKey release assets with VirusTotal & update GitHub Release.")
     parser.add_argument("--api-key", default=os.environ.get("VIRUSTOTAL_API_KEY"), help="VirusTotal API Key")
     parser.add_argument("--tag", default=os.environ.get("GITHUB_REF_NAME"), help="Release tag (e.g. v4.3.2)")

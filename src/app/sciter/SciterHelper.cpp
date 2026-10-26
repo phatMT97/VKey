@@ -5,6 +5,7 @@
 #include "system/DarkModeHelper.h"
 #include <dwmapi.h>
 #include <windowsx.h>
+#include "sciter-x.h"
 
 #pragma comment(lib, "dwmapi.lib")
 
@@ -132,6 +133,29 @@ bool GuardTaskbarStyle(WPARAM wParam, LPARAM lParam) noexcept {
         return true;
     }
     return false;
+}
+
+bool ConsumeRestoreFromMinimized(UINT msg, WPARAM wParam, bool& wasMinimized) noexcept {
+    if (msg == WM_SIZE && wParam == SIZE_MINIMIZED) {
+        wasMinimized = true;
+        return false;
+    }
+    const bool restoring = (msg == WM_SIZE && wParam == SIZE_RESTORED)
+                        || (msg == WM_SHOWWINDOW && wParam == TRUE);
+    if (!restoring || !wasMinimized) return false;
+    wasMinimized = false;
+    return true;
+}
+
+void RepaintAfterRestore(HWND hwnd) {
+    sciter::dom::element rootEl = sciter::dom::element::root_element(hwnd);
+    if (rootEl.is_valid()) {
+        rootEl.set_attribute("force-paint", L"1");
+        rootEl.update(false);
+        rootEl.remove_attribute("force-paint");
+        rootEl.update(false);
+    }
+    InvalidateRect(hwnd, nullptr, FALSE);
 }
 
 }  // namespace SciterHelper

@@ -114,6 +114,20 @@ namespace SciterHelper {
      */
     [[nodiscard]] bool GuardTaskbarStyle(WPARAM wParam, LPARAM lParam) noexcept;
 
+    /**
+     * Track minimize/restore from SubclassProc. Records SIZE_MINIMIZED in
+     * wasMinimized and returns true (clearing the flag) on the first
+     * WM_SIZE SIZE_RESTORED or WM_SHOWWINDOW(TRUE) after it — the point where
+     * Sciter needs RepaintAfterRestore() to avoid a stale/blank frame (#258).
+     */
+    [[nodiscard]] bool ConsumeRestoreFromMinimized(UINT msg, WPARAM wParam,
+                                                   bool& wasMinimized) noexcept;
+
+    /**
+     * Force Sciter to re-layout and repaint the whole window after a restore.
+     */
+    void RepaintAfterRestore(HWND hwnd);
+
 }  // namespace SciterHelper
 
 }  // namespace NextKey
