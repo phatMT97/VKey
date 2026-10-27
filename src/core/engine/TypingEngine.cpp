@@ -1038,6 +1038,9 @@ bool TypingEngine::HandleAdjacentCircumflex(TypingAction action, wchar_t c) {
         }
         // Apply circumflex - PRESERVE FIRST LETTER CASE
         last.mod = Modifier::Circumflex;
+        // A replacement ươ -> uô changes both quality marks, just as the
+        // free-marking and VNI switch paths do.
+        UndoHornU(states_.data(), states_.size() - 1);
         // Always relocate (not just when needsRelocate/ValidPrefix): with
         // spell check off, the Valid branch above skips WouldBeValidSyllable
         // entirely, so a tone already sitting on the pre-modifier vowel (e.g.
@@ -1904,6 +1907,7 @@ std::wstring TypingEngine::Commit() {
                         || qc_.hasActive();
     if (!skipAutoRestore) {
         bool shouldRestore = spellCheckDisabled_;  // Already known Invalid
+        bool unfinishedNucleus = false;
 
         // Also restore ValidPrefix at commit time — incomplete words like "úẻ"
         // (from typing "user") are ValidPrefix during typing (allowing future
@@ -1911,6 +1915,8 @@ std::wstring TypingEngine::Commit() {
         if (!shouldRestore && !states_.empty()) {
             auto result = Phonology::ValidateSyllableState(states_.data(), states_.size(), config_.allowZwjf);
             shouldRestore = (result == Phonology::SyllableState::ValidPrefix);
+            unfinishedNucleus = shouldRestore && std::any_of(states_.begin(), states_.end(),
+                [](const CharState& state) { return state.IsVowel(); });
         }
 
         if (shouldRestore) {
@@ -1919,8 +1925,10 @@ std::wstring TypingEngine::Commit() {
             bool excluded = IsSpellExcluded(states_.data(), states_.size(),
                                             config_.spellExclusions,
                                             [](const CharState& s) { return Compose(s); });
+            // A plausible but unfinished nucleus is a typing prefix, not a
+            // consonant abbreviation. Explicit exclusions still take priority.
             bool keepComposed = excluded ||
-                                HasIntentionalStrokeD(rawInput_, composed);
+                                (!unfinishedNucleus && HasIntentionalStrokeD(rawInput_, composed));
             if (!keepComposed) {
                 std::wstring raw(rawInput_.begin(), rawInput_.end());
                 // Preserve first-letter capitalization from composed form.
@@ -2182,6 +2190,7 @@ bool TypingEngine::ProcessVniVowelModifier(Modifier targetMod, wchar_t key) {
                 if (ShouldRejectModifier(i, targetMod, key)) return false;
             }
             states_[i].mod = targetMod;
+            if (targetMod == Modifier::Circumflex) UndoHornU(states_.data(), i);
             if (needsRelocate) RelocateToneToTarget();
             return true;
         }
@@ -2269,6 +2278,7 @@ bool TypingEngine::WouldBeValidSyllable(size_t targetIdx, Modifier newMod,
         std::copy_n(states_.begin(), bufferLen, saved.begin());
 
         states_[targetIdx].mod = newMod;
+        if (newMod == Modifier::Circumflex) UndoHornU(states_.data(), targetIdx);
         if (clearCircumflexIdx < bufferLen &&
             saved[clearCircumflexIdx].mod == Modifier::Circumflex) {
             states_[clearCircumflexIdx].mod = Modifier::None;
@@ -2297,7 +2307,9 @@ bool TypingEngine::WouldBeValidSyllable(size_t targetIdx, Modifier newMod,
     // mod-only path despite relocating at runtime — tracked in
     // docs/TODO.md as a known parity gap.
     Modifier saved = states_[targetIdx].mod;
+    Modifier savedCompanion = targetIdx > 0 ? states_[targetIdx - 1].mod : Modifier::None;
     states_[targetIdx].mod = newMod;
+    if (newMod == Modifier::Circumflex) UndoHornU(states_.data(), targetIdx);
     bool didClear = false;
     if (clearCircumflexIdx < states_.size() &&
         states_[clearCircumflexIdx].mod == Modifier::Circumflex) {
@@ -2316,6 +2328,7 @@ bool TypingEngine::WouldBeValidSyllable(size_t targetIdx, Modifier newMod,
                                && IsToneStopCodaMismatch();
     if (didClear) states_[clearCircumflexIdx].mod = Modifier::Circumflex;
     states_[targetIdx].mod = saved;
+    if (targetIdx > 0) states_[targetIdx - 1].mod = savedCompanion;
     return result != Phonology::SyllableState::Invalid || recoverableMismatch;
 }
 

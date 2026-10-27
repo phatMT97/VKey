@@ -1674,6 +1674,18 @@ TEST_F(PhonotacticsValidatorVCPairTest, AdjacentHeuristic_ToneMisplacedIsInvalid
               SyllableState::Invalid);
 }
 
+TEST_F(PhonotacticsValidatorPrefixTest, Issue268_CircumflexARequiresRhymeCompletion) {
+    for (auto tone : {Tone::None, Tone::Acute, Tone::Grave, Tone::Hook, Tone::Tilde, Tone::Dot}) {
+        const auto vowel = TMT(L'a', Modifier::Circumflex, tone);
+        EXPECT_EQ(V({vowel}), SyllableState::ValidPrefix);
+        EXPECT_EQ(V({TM(L'd', Modifier::Stroke), vowel}), SyllableState::ValidPrefix);
+        EXPECT_EQ(V({T(L'b'), vowel, T(L'i')}), SyllableState::Invalid);
+        for (wchar_t tail : {L'm', L'n', L'u', L'y'}) {
+            EXPECT_EQ(V({T(L'b'), vowel, T(tail)}), SyllableState::Valid);
+        }
+    }
+}
+
 }  // namespace
 }  // namespace NextKey
 

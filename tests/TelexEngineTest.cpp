@@ -5610,5 +5610,54 @@ TEST_F(TelexEngineTest, StrokeD_VowelBuffer_EnglishStaysProtected) {
     EXPECT_EQ(engine_->Peek(), L"pladd");
 }
 
+TEST_F(AutoRestoreTest, Issue268_UnfinishedCircumflexDoesNotBecomeACompletedWord) {
+    for (auto method : {InputMethod::Telex, InputMethod::SimpleTelex, InputMethod::Combined, InputMethod::VNI}) {
+        config_.inputMethod = method;
+        const wchar_t* raw = method == InputMethod::VNI ? L"d9a64" : L"ddaax";
+        TypingEngine engine(config_);
+        TypeString(engine, raw);
+        EXPECT_EQ(engine.Peek(), L"đẫ");
+        EXPECT_EQ(engine.Commit(), raw);
+    }
+    for (const wchar_t* raw : {L"aa", L"baaf", L"DDAAX"}) {
+        config_.inputMethod = InputMethod::SimpleTelex;
+        TypingEngine engine(config_);
+        TypeString(engine, raw);
+        EXPECT_EQ(engine.Commit(), raw);
+    }
+}
+
+TEST_F(AutoRestoreTest, Issue268_ExplicitFreeTypingAndExclusionsStillKeepMarkedText) {
+    for (bool spell : {false, true}) {
+        for (bool restore : {false, true}) {
+            if (spell && restore) continue;
+            config_.spellCheckEnabled = spell;
+            config_.autoRestoreEnabled = restore;
+            TypingEngine engine(config_);
+            TypeString(engine, L"ddaax");
+            EXPECT_EQ(engine.Commit(), L"đẫ");
+        }
+    }
+    config_.spellCheckEnabled = true;
+    config_.autoRestoreEnabled = true;
+    config_.spellExclusions = {L"đẫ"};
+    TypingEngine engine(config_);
+    TypeString(engine, L"ddaax");
+    EXPECT_EQ(engine.Commit(), L"đẫ");
+}
+
+TEST_F(AutoRestoreTest, Issue268_AbbreviationsAndCompleteRhymesStayComposed) {
+    struct Case { const wchar_t* raw; const wchar_t* expected; };
+    const Case cases[] = {{L"dd", L"đ"}, {L"ddt", L"đt"}, {L"ddh", L"đh"},
+        {L"hdd", L"hđ"}, {L"vddeef", L"vddeef"}, {L"ddaam", L"đâm"},
+        {L"ddaauf", L"đầu"}, {L"ddaay", L"đây"}};
+    for (const auto& item : cases) {
+        TypingEngine engine(config_);
+        TypeString(engine, item.raw);
+        EXPECT_EQ(engine.Commit(), item.expected);
+    }
+    EXPECT_TRUE(HasIntentionalStrokeD(std::wstring(L"vddeef"), L"vđề"));
+}
+
 }  // namespace
 }  // namespace NextKey

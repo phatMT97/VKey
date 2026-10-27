@@ -72,9 +72,9 @@ TEST_F(EngineFactoryTest, RuntimeSwitch_TelexToVNI) {
     telexEngine->PushChar(L'a');
     EXPECT_EQ(telexEngine->Peek(), L"â");
     
-    // Simulate commit before switch
+    // Default spell checking restores this unfinished â prefix at the boundary.
     std::wstring committed = telexEngine->Commit();
-    EXPECT_EQ(committed, L"â");
+    EXPECT_EQ(committed, L"aa");
     
     // Create VNI engine (like switching)
     auto vniEngine = EngineFactory::Create(InputMethod::VNI);

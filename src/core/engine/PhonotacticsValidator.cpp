@@ -27,13 +27,14 @@ namespace {
 struct VowelEntry {
     uint32_t key;
     bool canEnd;  // Can be followed by a final consonant?
+    bool requiresEnd = false;
 };
 
 // Sorted by key (currently searched linearly; ~50 entries so O(n) is fine)
 constexpr VowelEntry kVowelTable[] = {
     // === Single vowels (can have end consonant) ===
     { Key1(VowelSlot(kA, kNone)), true },   // a
-    { Key1(VowelSlot(kA, kCirc)), true },   // â
+    { Key1(VowelSlot(kA, kCirc)), true, true },   // â requires rhyme closure
     { Key1(VowelSlot(kA, kBrev)), true },   // ă
     { Key1(VowelSlot(kE, kNone)), true },   // e
     { Key1(VowelSlot(kE, kCirc)), true },   // ê
@@ -435,8 +436,7 @@ SyllableState ValidateDecomposition(const CharStateT* states, size_t count,
     remaining = count - pos;
 
     if (remaining == 0) {
-        // No final consonant — always valid
-        return SyllableState::Valid;
+        return entry->requiresEnd ? SyllableState::ValidPrefix : SyllableState::Valid;
     }
 
     // Try to parse final consonant

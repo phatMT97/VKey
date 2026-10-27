@@ -261,5 +261,93 @@ TEST_F(AdjacentCircumflexProposalTest, GoldenReplay_ByteIdenticalAcrossInputs) {
     }
 }
 
+TEST_F(AdjacentCircumflexProposalTest, Issue270_CoupledQualitySwitchPreservesBothVowels) {
+    struct Step { wchar_t key; const wchar_t* expected; };
+    const Step steps[] = {{L'w', L"ươ"}, {L'o', L"uô"}, {L'w', L"ươ"},
+                          {L'o', L"uô"}, {L'w', L"ươ"}};
+    for (auto method : {InputMethod::Telex, InputMethod::SimpleTelex, InputMethod::Combined}) {
+        for (bool spell : {false, true}) {
+            for (bool modern : {false, true}) {
+                for (const wchar_t* onset : {L"", L"b", L"d", L"D"}) {
+                    auto cfg = MakeTelexConfig();
+                    cfg.inputMethod = method;
+                    cfg.spellCheckEnabled = spell;
+                    cfg.modernOrtho = modern;
+                    TypingEngine engine(cfg);
+                    std::wstring raw = std::wstring(onset) + L"uo";
+                    TypeString(engine, raw);
+                    for (const auto& step : steps) {
+                        engine.PushChar(step.key);
+                        raw += step.key;
+                        EXPECT_EQ(engine.Peek(), std::wstring(onset) + step.expected);
+                        EXPECT_EQ(engine.Count(), std::wstring(onset).size() + 2);
+                        EXPECT_EQ(engine.PeekRaw(), raw);
+                    }
+                }
+            }
+        }
+    }
+}
+
+TEST_F(AdjacentCircumflexProposalTest, Issue270_QualitySwitchKeepsToneAndUppercaseIntent) {
+    for (bool spell : {false, true}) {
+        auto cfg = MakeTelexConfig();
+        cfg.spellCheckEnabled = spell;
+        TypingEngine engine(cfg);
+        TypeString(engine, L"DUOWF");
+        EXPECT_EQ(engine.Peek(), L"DƯỜ");
+        engine.PushChar(L'O');
+        EXPECT_EQ(engine.Peek(), L"DUỒ");
+        engine.PushChar(L'W');
+        EXPECT_EQ(engine.Peek(), L"DƯỜ");
+    }
+}
+
+TEST_F(AdjacentCircumflexProposalTest, Issue270_InverseHornOrderAlsoAllowsCircumflexReplacement) {
+    for (auto method : {InputMethod::Telex, InputMethod::VNI}) {
+        for (bool spell : {false, true}) {
+            auto cfg = MakeTelexConfig();
+            cfg.inputMethod = method;
+            cfg.spellCheckEnabled = spell;
+            TypingEngine engine(cfg);
+            TypeString(engine, method == InputMethod::VNI ? L"du7o6" : L"duwoo");
+            EXPECT_EQ(engine.Peek(), L"duô");
+        }
+    }
+}
+
+TEST_F(AdjacentCircumflexProposalTest, Issue270_ExistingOpenHornAndBackspaceContractsRemainAvailable) {
+    for (auto method : {InputMethod::Telex, InputMethod::SimpleTelex, InputMethod::Combined, InputMethod::VNI}) {
+        for (bool spell : {false, true}) {
+            auto cfg = MakeTelexConfig();
+            cfg.inputMethod = method;
+            cfg.spellCheckEnabled = spell;
+            TypingEngine engine(cfg);
+            TypeString(engine, method == InputMethod::VNI ? L"huo76767" : L"huowowow");
+            EXPECT_EQ(engine.Peek(), L"huơ");
+            engine.Reset();
+            TypeString(engine, method == InputMethod::VNI ? L"huo7ng6" : L"huowngo");
+            EXPECT_EQ(engine.Peek(), L"huông");
+            engine.Backspace();
+            EXPECT_EQ(engine.Peek(), L"huôn");
+            engine.PushChar(L'g');
+            EXPECT_EQ(engine.Peek(), L"huông");
+        }
+    }
+}
+
+TEST_F(AdjacentCircumflexProposalTest, Issue270_CustomCircumflexAndHornActionsShareQualitySwitch) {
+    auto cfg = MakeUserDefinedConfig();
+    cfg.customKeyMap[static_cast<size_t>(L'q')] = TypingAction::CircumflexO;
+    cfg.customKeyMap[static_cast<size_t>(L'k')] = TypingAction::HornW;
+    TypingEngine engine(cfg);
+    TypeString(engine, L"duok");
+    EXPECT_EQ(engine.Peek(), L"dươ");
+    engine.PushChar(L'q');
+    EXPECT_EQ(engine.Peek(), L"duô");
+    engine.PushChar(L'k');
+    EXPECT_EQ(engine.Peek(), L"dươ");
+}
+
 }  // namespace
 }  // namespace NextKey
