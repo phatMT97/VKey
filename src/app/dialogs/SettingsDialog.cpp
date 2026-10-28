@@ -480,14 +480,10 @@ void SettingsDialog::SetVietnameseMode(bool vietnamese) {
 }
 
 void SettingsDialog::Show() {
-    // Message loop until window is closed
-    MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-
-        if (!IsWindow(get_hwnd())) break;
-    }
+    // Sciter's loop advances deferred mouse/idle events as well as Win32
+    // messages. GetMessageW alone leaves native hover tooltips pending.
+    // WM_CLOSE still flushes settings and exits this subprocess explicitly.
+    sciter::application::run();
 }
 
 bool SettingsDialog::handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params) {

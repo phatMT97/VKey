@@ -348,6 +348,17 @@ body.dark select option:checked {
     popup-position: top-right bottom-right;
 }
 
+/* Rows near the bottom open upwards, retaining the right-edge alignment. */
+#row-spell-exclusions .info-icon > popup[role="tooltip"],
+#row-hotkeys .info-icon > popup[role="tooltip"],
+#row-tsf-apps .info-icon > popup[role="tooltip"],
+#row-hide-preedit-underline .info-icon > popup[role="tooltip"],
+#row-enable-toast .info-icon > popup[role="tooltip"],
+#row-debug-log .info-icon > popup[role="tooltip"],
+#row-check-update .info-icon > popup[role="tooltip"] {
+    popup-position: bottom-right top-right;
+}
+
 /* ============================================
    WINDOWS 10 FALLBACKS
    Win10 DWM does not support round window corners or clip blur properly.

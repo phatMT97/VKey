@@ -206,13 +206,8 @@ SciterSubDialog::~SciterSubDialog() {
 }
 
 void SciterSubDialog::Show() {
-    MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-
-        if (!IsWindow(get_hwnd())) break;
-    }
+    // Include Sciter's deferred mouse/idle processing for native tooltips.
+    sciter::application::run();
 }
 
 LRESULT SciterSubDialog::on_load_data(LPSCN_LOAD_DATA pnmld) {
