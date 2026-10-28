@@ -45,6 +45,8 @@ static constexpr UINT_PTR TIMER_RESIZE_WINDOW = 1001;
 
 // Private self-posted message for coalescing rapid V/E mode changes
 static constexpr UINT WM_SETTINGS_MODE_SYNC = WM_APP + 1;
+// Finish startup outside Sciter's DOCUMENT_READY callback and the constructor.
+static constexpr UINT WM_SETTINGS_INITIALIZE = WM_APP + 2;
 
 // DWM constants for dark mode
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
@@ -80,10 +82,6 @@ SettingsDialog::SettingsDialog()
     (void)sharedState_.OpenReadWrite();
     (void)configEvent_.Initialize();
 
-    // ═══════════════════════════════════════════════════════════
-    // ORDER IS CRITICAL - Do not rearrange these steps!
-    // ═══════════════════════════════════════════════════════════
-
     // 0. Set up UI base path for Debug mode (file system loading)
 #ifndef SCITER_USE_PACKFOLDER
     wchar_t exeDir[MAX_PATH] = {};
@@ -95,7 +93,14 @@ SettingsDialog::SettingsDialog()
     }
 #endif
 
-    // 1. Set transparent BEFORE load() - enables blur effect
+    // Install the native handlers before load(), which can deliver document
+    // events synchronously. Keep the window offscreen until DOCUMENT_READY.
+    SetWindowSubclass(get_hwnd(), SubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowTextW(get_hwnd(), L"VKey Settings");
+    BOOL disableTransitions = TRUE;
+    DwmSetWindowAttribute(get_hwnd(), 3, &disableTransitions, sizeof(disableTransitions));
+
+    // Transparency must be enabled before loading the document.
     SciterSetOption(get_hwnd(), SCITER_TRANSPARENT_WINDOW, 1);
 
     // 2. Load HTML using this://app/ scheme (works for both Debug and Release)
@@ -103,63 +108,49 @@ SettingsDialog::SettingsDialog()
     // In Release: on_load_data() loads from packed archive
     if (!load(WSTR("this://app/settings/settings.html"))) {
         NEXTKEY_LOG(L"Failed to load settings.html");
+        PostMessageW(get_hwnd(), WM_CLOSE, 0, 0);
+    }
+}
+
+void SettingsDialog::applyDocumentSettings() {
+    sciter::dom::element root = get_root();
+    if (!root.is_valid()) return;
+
+    root.set_attribute("lang", GetLanguage() == Language::English ? L"en" : L"vi");
+    sciter::dom::element body = root.find_first("body");
+    if (body.is_valid()) {
+        const bool dark = !forceLightTheme_ && DarkModeHelper::IsWindowsDarkMode();
+        body.set_attribute("class", DarkModeHelper::BuildBodyClasses(dark).c_str());
+    }
+}
+
+void SettingsDialog::initializeWindow() {
+    if (uiInitialized_) return;
+    HWND hwnd = get_hwnd();
+    if (!hwnd) return;
+    sciter::dom::element root = get_root();
+    if (!root.is_valid() || !root.find_first("#main-container")) {
+        NEXTKEY_LOG(L"Settings document ready without its main container");
+        PostMessageW(hwnd, WM_CLOSE, 0, 0);
         return;
     }
+    uiInitialized_ = true;
 
-    // 2b. Set UI language (before scripts run)
-    if (GetLanguage() == Language::English) {
-        sciter::dom::element root = get_root();
-        root.set_attribute("lang", L"en");
-    }
-
-    // 3. Show window offscreen to initialize DWM and Sciter rendering state
-    // (Required for transparency/blur to work correctly)
-    expand();
-    // 4. Set title (icon is set at end of constructor after all Sciter calls)
-    SetWindowTextW(get_hwnd(), L"VKey Settings");
-
-    // 8. Subclass for window dragging and close
-    SetWindowSubclass(get_hwnd(), SubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
-
-    // 9. Initialize UI with loaded settings
+    applyDocumentSettings();
     initializeUI();
+    // initializeUI schedules a resize for later config refreshes. Startup sizes
+    // the complete document here before bringing the window onscreen.
+    KillTimer(hwnd, TIMER_RESIZE_WINDOW);
 
-    // 10. Temporarily disable DWM transitions (animations) to avoid seeing the window jump
-    // DWMWA_TRANSITIONS_FORCEDISABLE = 3 in dwmapi.h
-    BOOL disableTransitions = TRUE;
-    DwmSetWindowAttribute(get_hwnd(), 3, &disableTransitions, sizeof(disableTransitions));
+    const bool dark = !forceLightTheme_ && DarkModeHelper::IsWindowsDarkMode();
+    DarkModeHelper::SetWindowDarkMode(hwnd, dark);
 
-    // 11. Apply theme-aware DWM mode and Windows API blur
-    HWND hwnd = get_hwnd();
-    if (hwnd) {
-        bool dark = forceLightTheme_ ? false : DarkModeHelper::IsWindowsDarkMode();
-        DarkModeHelper::SetWindowDarkMode(hwnd, dark);
-
-        // Set body class based on detected theme (get_root() = <html>, need <body>)
-        sciter::dom::element htmlRoot(get_root());
-        sciter::dom::element body = htmlRoot.find_first("body");
-        if (body.is_valid()) {
-            body.set_attribute("class", DarkModeHelper::BuildBodyClasses(dark).c_str());
-        }
-
-        // Enable rounded corners on Windows 11
-        int cornerPreference = DwmConstants::DWMWCP_ROUND;
-        DwmSetWindowAttribute(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE,
-                              &cornerPreference, sizeof(cornerPreference));
-
-        // Enable Windows API blur effect (more beautiful than Sciter's native blur)
-        SciterHelper::enableWindowBlur(hwnd, BlurMode::Blur);
-    }
-
-    // 12. Expand (show) the window offscreen first.
-    // This is REQUIRED so that DWM Composition and Sciter rendering state become active.
-    // Without this, the background stays solid black instead of blurred/transparent.
+    // An offscreen show activates DWM/Sciter rendering before measuring content.
     expand();
-
-    // Calculate actual dimensions before centering (handles Advanced Settings width)
     recalcWindowSize();
+    SciterHelper::enableWindowBlur(hwnd, BlurMode::Blur);
 
-    // 13. Finally, move the initialized, rendered, and themed window onscreen
+    // Reveal only the initialized document at its measured size.
     RECT rc;
     GetWindowRect(get_hwnd(), &rc);
     int winWidth = rc.right - rc.left;
@@ -175,7 +166,7 @@ SettingsDialog::SettingsDialog()
     SciterHelper::ForceTaskbarPresence(get_hwnd(), IDI_APP);
 
     // Re-enable DWM transitions for subsequent show/hide animations
-    disableTransitions = FALSE;
+    BOOL disableTransitions = FALSE;
     DwmSetWindowAttribute(get_hwnd(), 3, &disableTransitions, sizeof(disableTransitions));
 }
 
@@ -263,6 +254,11 @@ LRESULT CALLBACK SettingsDialog::SubclassProc(
         (void)SciterHelper::GuardTaskbarStyle(wParam, lParam);
     }
 
+    if (msg == WM_SETTINGS_INITIALIZE) {
+        if (s_instance) s_instance->initializeWindow();
+        return 0;
+    }
+
     // WM_CLOSE: terminate child subdialogs, flush deferred save, then destroy
     // (MUST use DestroyWindow, not PostQuitMessage — Sciter assertion failures)
     if (msg == WM_CLOSE) {
@@ -313,7 +309,7 @@ LRESULT CALLBACK SettingsDialog::SubclassProc(
     if (msg == WM_VKEY_CONFIG_CHANGED) {
         if (s_instance) {
             s_instance->loadSettings();
-            s_instance->initializeUI();
+            if (s_instance->uiInitialized_) s_instance->initializeUI();
         }
         return 0;
     }
@@ -494,6 +490,18 @@ void SettingsDialog::Show() {
 
 bool SettingsDialog::handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params) {
     UNREFERENCED_PARAMETER(he);
+
+    if (params.cmd == DOCUMENT_PARSED && params.heTarget == get_root()) {
+        // Preserve Sciter's own document handling, then set language/theme for
+        // the JavaScript ready handlers (translations and blur tint).
+        const bool handled = sciter::window::handle_event(he, params);
+        applyDocumentSettings();
+        return handled;
+    }
+    if (params.cmd == DOCUMENT_READY && params.heTarget == get_root()) {
+        if (!uiInitialized_) PostMessageW(get_hwnd(), WM_SETTINGS_INITIALIZE, 0, 0);
+        return sciter::window::handle_event(he, params);
+    }
 
     // Handle BUTTON_CLICK events
     if (params.cmd == BUTTON_CLICK) {

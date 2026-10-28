@@ -20,6 +20,7 @@ Bổ sung khôi phục gõ tắt bằng Backspace, cải thiện viết hoa macr
 
 #### Cập nhật giao diện & sửa lỗi hiển thị ([#266](https://github.com/phatMT97/VKey/issues/266))
 
+- **Sửa lỗi bố cục khi mở Cài đặt:** Khắc phục tình trạng nội dung bị dồn vào góc trái, khung cửa sổ thừa vùng nền mờ và tiêu đề còn hiển thị phiên bản mặc định. Giao diện được khởi tạo đầy đủ và căn kích thước trước khi hiển thị.
 - **Đồng bộ chế độ V/E khi mở Cài đặt:** Sửa lỗi nút gạt E-V luôn bị chuyển sang tiếng Anh (E) khi double-click vào biểu tượng khay hệ thống (tray icon) để mở bảng điều khiển.
 - **Tối ưu hiển thị giao diện sáng (Light Mode):** Đổi màu nền sang tone neutral dịu mắt, tăng độ tương phản của viền cửa sổ trên Windows 10, giúp giao diện không bị chìm hoặc lẫn vào nền trắng của các ứng dụng như Chrome, Word, Notepad.
 - **Cải thiện độ tương phản chữ trên nền mờ:** Đổi màu chữ tiêu đề các cửa sổ và tiêu đề nhóm từ màu xanh sang màu chữ tiêu chuẩn để tăng độ rõ nét và dễ đọc khi sử dụng hiệu ứng nền mờ (translucent background).

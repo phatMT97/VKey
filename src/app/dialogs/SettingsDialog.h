@@ -79,8 +79,11 @@ private:
     void saveToToml();         // Deferred: TOML file write
     void saveUISettings();
     void saveSystemSettings();
+    void applyDocumentSettings();
+    void initializeWindow();
     void initializeUI();
 
+    bool uiInitialized_ = false;
     bool configDirty_ = false;
 
     // Event handlers for specific settings
