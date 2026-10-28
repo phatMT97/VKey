@@ -1044,6 +1044,15 @@ void SettingsDialog::handleButtonClick(const std::wstring& id) {
     }
 }
 
+void SettingsDialog::notifySubdialogPinState() {
+    EnumWindows([](HWND child, LPARAM parent) -> BOOL {
+        if (GetPropW(child, VKEY_SUBDIALOG_PARENT_PROP) == reinterpret_cast<HANDLE>(parent)) {
+            PostMessageW(child, WM_VKEY_PARENT_PIN_CHANGED, 0, parent);
+        }
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(get_hwnd()));
+}
+
 void SettingsDialog::togglePin() {
     HWND hwnd = get_hwnd();
     if (!hwnd) return;
@@ -1053,6 +1062,7 @@ void SettingsDialog::togglePin() {
     // Set window topmost state
     SetWindowPos(hwnd, isPinned_ ? HWND_TOPMOST : HWND_NOTOPMOST,
                  0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    notifySubdialogPinState();
 
     // Update button visual state
     sciter::dom::element root = get_root();
@@ -1453,6 +1463,7 @@ void SettingsDialog::initializeUI() {
     // Apply both states: config reloads can also turn pinning off.
     SetWindowPos(get_hwnd(), isPinned_ ? HWND_TOPMOST : HWND_NOTOPMOST,
                  0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    notifySubdialogPinState();
     {
         sciter::dom::element pinBtn = root.find_first("#btn-pin");
         if (pinBtn.is_valid()) {

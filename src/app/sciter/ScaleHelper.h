@@ -6,26 +6,16 @@
 
 #pragma once
 #include <windows.h>
-#include <algorithm>
+#include <cmath>
 
 namespace NextKey {
 
 /**
- * ScaleHelper - Utility for scaling dialog sizes based on DPI and resolution.
- *
- * Considers both:
- * 1. DPI scaling (125%, 150%, etc.) - Sciter renders at native DPI
- * 2. Screen resolution (1366x768, etc.) - scales down proportionally
- *
- * Reference: 1920x1080 @ 100% DPI = scale factor 1.0
+ * Scale native window dimensions at the same DPI as Sciter's CSS pixels.
+ * Resolution-based shrinking or a DPI cap would clip the rendered content.
  */
 class ScaleHelper {
 public:
-    // Reference resolution (development baseline at 100% DPI)
-    static constexpr int REF_SCREEN_WIDTH = 1920;
-    static constexpr int REF_SCREEN_HEIGHT = 1080;
-    static constexpr double MIN_SCALE = 0.7;
-    static constexpr double MAX_SCALE = 2.0;
     static constexpr int DEFAULT_DPI = 96;
 
     /**
@@ -68,28 +58,17 @@ public:
     }
 
     /**
-     * Get the combined scale factor for dialogs.
-     *
-     * Examples:
-     * - 1920x1080 @ 100%: scale = 1.0
-     * - 1920x1080 @ 125%: scale = 1.25
-     * - 1920x1080 @ 150%: scale = 1.5
-     * - 1366x768 @ 100%:  scale = 0.71
-     * - 1366x768 @ 125%:  scale = 0.89
+     * Get the system DPI scale without capping it below Sciter's scale.
      */
     [[nodiscard]] static double getScaleFactor() noexcept {
-        // We only use DPI scaling because Sciter renders CSS pixels (e.g. width: 420px)
-        // directly scaled by DPI. If we shrink the native window using a resolution scale 
-        // (< 1.0 on small monitors), Sciter's content will overflow and get clipped!
-        double dpiScale = getDpiScale();
-        return (std::max)(MIN_SCALE, (std::min)(MAX_SCALE, dpiScale));
+        return getDpiScale();
     }
 
     /**
      * Scale a single dimension (width or height).
      */
     [[nodiscard]] static int scale(int baseDimension) noexcept {
-        return static_cast<int>(baseDimension * getScaleFactor());
+        return static_cast<int>(std::lround(baseDimension * getScaleFactor()));
     }
 
     /**
@@ -97,9 +76,7 @@ public:
      * Falls back to system DPI when hwnd is null.
      */
     [[nodiscard]] static int scaleForWindow(HWND hwnd, int baseDimension, int pad = 0) noexcept {
-        double dpiScale = getDpiScaleForWindow(hwnd);
-        double factor = (std::max)(MIN_SCALE, (std::min)(MAX_SCALE, dpiScale));
-        return static_cast<int>((baseDimension + pad) * factor);
+        return static_cast<int>(std::lround((baseDimension + pad) * getDpiScaleForWindow(hwnd)));
     }
 
     /**

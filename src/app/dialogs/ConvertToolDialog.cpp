@@ -7,14 +7,20 @@
 #include "core/hotkey/HotkeyLabel.h"
 #include "helpers/AppHelpers.h"
 #include "core/Strings.h"
+#include "sciter/ScaleHelper.h"
 #include "sciter-x-dom.hpp"
 #include <windows.h>
 #include <commdlg.h>
+#include <algorithm>
 #include <vector>
 
 using namespace sciter::dom;
 
 namespace NextKey {
+
+// Measure after construction and after Sciter has applied document/mode changes.
+static constexpr UINT WM_CONVERT_FIT_CONTENT = WM_APP + 3;
+static constexpr UINT_PTR TIMER_CONVERT_FIT_CONTENT = 1003;
 
 ConvertToolDialog::ConvertToolDialog(HWND parent)
     : SciterSubDialog({
@@ -24,7 +30,68 @@ ConvertToolDialog::ConvertToolDialog(HWND parent)
     }) {
     // Load saved config (UI will be populated in DOCUMENT_COMPLETE)
     config_ = ConfigManager::LoadConvertConfigOrDefault();
-    isPinned_ = config().topmost;
+    PostMessageW(get_hwnd(), WM_CONVERT_FIT_CONTENT, 0, 0);
+}
+
+LRESULT ConvertToolDialog::onCustomMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM) {
+    if (msg == WM_CONVERT_FIT_CONTENT) {
+        // Let Sciter commit CSS/layout before reading geometry. Coalesce mode
+        // and document notifications into one measurement after the next frame.
+        if (!SetTimer(hwnd, TIMER_CONVERT_FIT_CONTENT, 30, nullptr)) fitContent();
+        return 0;
+    }
+    if (msg == WM_TIMER && wParam == TIMER_CONVERT_FIT_CONTENT) {
+        KillTimer(hwnd, TIMER_CONVERT_FIT_CONTENT);
+        fitContent();
+        return 0;
+    }
+    if (msg == WM_DPICHANGED) {
+        PostMessageW(hwnd, WM_CONVERT_FIT_CONTENT, 0, 0);
+    }
+    return -1;
+}
+
+void ConvertToolDialog::fitContent() {
+    HWND hwnd = get_hwnd();
+    if (!hwnd || IsIconic(hwnd)) return;
+
+    element rootEl = get_root();
+    element container = rootEl.find_first("#main-container");
+    element content = rootEl.find_first(".content-section");
+    if (!container.is_valid() || !content.is_valid()) return;
+
+    // Re-measure natural height each time: delta-based resizing drifts on mode
+    // changes and cannot account for translated text or a different monitor DPI.
+    content.set_style_attribute("height", L"auto");
+    container.set_style_attribute("height", L"auto");
+    rootEl.update(true);
+    const RECT bounds = container.get_location_ppx(MARGIN_BOX);
+    const int width = bounds.right - bounds.left;
+    const int naturalHeight = bounds.bottom - bounds.top;
+    if (width <= 0 || naturalHeight <= 0) return;
+
+    MONITORINFO monitor{sizeof(monitor)};
+    if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &monitor)) return;
+    const RECT& work = monitor.rcWork;
+    const int height = (std::min)(naturalHeight, static_cast<int>(work.bottom - work.top));
+    if (height < naturalHeight) {
+        // Keep the title visible and scroll the content on short work areas.
+        const RECT border = container.get_location_ppx(BORDER_BOX);
+        const int borderHeight = border.bottom - border.top - (naturalHeight - height);
+        wchar_t cssHeight[32];
+        swprintf_s(cssHeight, L"%.2fpx", borderHeight / ScaleHelper::getDpiScaleForWindow(hwnd));
+        container.set_style_attribute("height", cssHeight);
+        content.set_style_attribute("height", L"*");
+    }
+
+    RECT windowRect{};
+    if (!GetWindowRect(hwnd, &windowRect)) return;
+    const int x = (std::max)(static_cast<int>(work.left),
+        (std::min)(static_cast<int>(windowRect.left), static_cast<int>(work.right) - width));
+    const int y = (std::max)(static_cast<int>(work.top),
+        (std::min)(static_cast<int>(windowRect.top), static_cast<int>(work.bottom) - height));
+    SetWindowPos(hwnd, nullptr, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+    rootEl.update(true);
 }
 
 bool ConvertToolDialog::handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params) {
@@ -32,7 +99,7 @@ bool ConvertToolDialog::handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params)
     if (params.cmd == DOCUMENT_COMPLETE) {
         sciter::dom::element root = get_root();
         sciter::dom::element pinBtn = root.find_first("#btn-pin");
-        if (pinBtn.is_valid() && isPinned_) {
+        if (pinBtn.is_valid() && config().topmost) {
             pinBtn.set_attribute("class", L"btn-pin pinned");
         }
 
@@ -95,6 +162,7 @@ bool ConvertToolDialog::handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params)
             root2.call_function("updateSequentialToggleState", autoPasteArg);
         }
 
+        PostMessageW(get_hwnd(), WM_CONVERT_FIT_CONTENT, 0, 0);
         return true;
     }
 
@@ -138,31 +206,9 @@ bool ConvertToolDialog::handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params)
             return true;
         }
 
-        // Mode switch (clipboard ↔ file) — adjust window height by file section delta
+        // Mode switch (clipboard ↔ file): fit the complete updated document.
         if (id == L"val-ui-mode") {
-            sciter::dom::element rootEl = get_root();
-            sciter::dom::element fileArea = rootEl.find_first("#file-selection-area");
-            if (fileArea.is_valid()) {
-                rootEl.update(true);  // commit CSS class change
-
-                RECT fr = fileArea.get_location_ppx(BORDER_BOX);
-                int sectionH = fr.bottom - fr.top;
-
-                sciter::value val = el.get_value();
-                bool isFile = val.is_string() && val.get<std::wstring>() == L"file";
-
-                RECT wr;
-                GetWindowRect(get_hwnd(), &wr);
-                int newH = (wr.bottom - wr.top) + (isFile ? sectionH : -sectionH);
-                SetWindowPos(get_hwnd(), nullptr, 0, 0, wr.right - wr.left, newH,
-                             SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
-
-                // Force repaint transparent window
-                rootEl.set_attribute("force-paint", L"1");
-                rootEl.update(false);
-                rootEl.remove_attribute("force-paint");
-                rootEl.update(false);
-            }
+            PostMessageW(get_hwnd(), WM_CONVERT_FIT_CONTENT, 0, 0);
             return true;
         }
 
@@ -541,15 +587,12 @@ void ConvertToolDialog::togglePin() {
     HWND hwnd = get_hwnd();
     if (!hwnd) return;
 
-    isPinned_ = !isPinned_;
-
-    SetWindowPos(hwnd, isPinned_ ? HWND_TOPMOST : HWND_NOTOPMOST,
-                 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    setPinned(!config().topmost);
 
     sciter::dom::element root = get_root();
     sciter::dom::element pinBtn = root.find_first("#btn-pin");
     if (pinBtn.is_valid()) {
-        pinBtn.set_attribute("class", isPinned_ ? L"btn-pin pinned" : L"btn-pin");
+        pinBtn.set_attribute("class", config().topmost ? L"btn-pin pinned" : L"btn-pin");
     }
 }
 

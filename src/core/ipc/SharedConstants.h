@@ -36,6 +36,10 @@ constexpr UINT WM_VKEY_OPEN_ICON_SETTINGS = WM_USER + 119; // Deferred: open ico
 constexpr UINT WM_VKEY_ICON_SETTINGS_CHANGED = WM_USER + 120; // Icon dialog → Settings: refresh cached SystemConfig only
 constexpr UINT WM_VKEY_TRAY_APP_SYNC = WM_USER + 121;     // Deferred: consume latest tray app-context snapshot
 constexpr UINT WM_VKEY_LEXICON_COMMITTED = WM_USER + 122; // Lexicon dialog → Main: publish wire, then signal generation
+constexpr UINT WM_VKEY_PARENT_PIN_CHANGED = WM_USER + 123; // Settings → subdialog: re-read parent pin (lParam: Settings HWND)
+
+// Identifies subdialogs without Win32 ownership across process input queues.
+inline constexpr wchar_t VKEY_SUBDIALOG_PARENT_PROP[] = L"VKey.Subdialog.SettingsParent";
 
 }  // namespace NextKey
 

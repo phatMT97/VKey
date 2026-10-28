@@ -90,7 +90,7 @@ void IconSettingsDialog::setCustomColorsVisible(bool visible) {
 
     RECT windowRect{};
     if (GetWindowRect(get_hwnd(), &windowRect)) {
-        const int delta = ScaleHelper::scale(kCustomColorsHeight - kBaseHeight);
+        const int delta = ScaleHelper::scaleForWindow(get_hwnd(), kCustomColorsHeight - kBaseHeight);
         const int signedDelta = visible ? delta : -delta;
         const int width = windowRect.right - windowRect.left;
         const int height = windowRect.bottom - windowRect.top + signedDelta;

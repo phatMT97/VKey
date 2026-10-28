@@ -94,6 +94,9 @@ SciterSubDialog::SciterSubDialog(const SubDialogConfig& config)
 
     // Subclass for dragging and close
     SetWindowSubclass(get_hwnd(), SubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
+    if (config_.parentHwnd && IsWindow(config_.parentHwnd)) {
+        SetPropW(get_hwnd(), VKEY_SUBDIALOG_PARENT_PROP, config_.parentHwnd);
+    }
 
     // Theme-aware DWM mode + rounded corners + blur (after subclass)
     HWND hwnd = get_hwnd();
@@ -205,6 +208,18 @@ SciterSubDialog::~SciterSubDialog() {
     s_instance = nullptr;
 }
 
+void SciterSubDialog::setPinned(bool pinned) {
+    config_.topmost = pinned;
+    syncParentPin();
+}
+
+void SciterSubDialog::syncParentPin() {
+    const bool parentPinned = config_.parentHwnd && IsWindow(config_.parentHwnd)
+        && (GetWindowLongPtrW(config_.parentHwnd, GWL_EXSTYLE) & WS_EX_TOPMOST);
+    SetWindowPos(get_hwnd(), config_.topmost || parentPinned ? HWND_TOPMOST : HWND_NOTOPMOST,
+                 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+}
+
 void SciterSubDialog::Show() {
     // Include Sciter's deferred mouse/idle processing for native tooltips.
     sciter::application::run();
@@ -280,6 +295,7 @@ LRESULT CALLBACK SciterSubDialog::SubclassProc(
     }
 
     if (msg == WM_CLOSE) {
+        RemovePropW(hwnd, VKEY_SUBDIALOG_PARENT_PROP);
         if (s_instance) {
             s_instance->onBeforeClose();
             HandoffFocusToOwner(s_instance->config_.parentHwnd);
@@ -290,7 +306,16 @@ LRESULT CALLBACK SciterSubDialog::SubclassProc(
     }
 
     if (msg == WM_DESTROY) {
+        RemovePropW(hwnd, VKEY_SUBDIALOG_PARENT_PROP);
         RemoveWindowSubclass(hwnd, SubclassProc, 1);
+        return 0;
+    }
+
+    if (msg == WM_VKEY_PARENT_PIN_CHANGED) {
+        if (s_instance && reinterpret_cast<HWND>(lParam) == s_instance->config_.parentHwnd) {
+            // Read current state so queued notifications cannot apply a stale pin.
+            s_instance->syncParentPin();
+        }
         return 0;
     }
 

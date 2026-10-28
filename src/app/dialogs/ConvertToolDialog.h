@@ -21,6 +21,8 @@ public:
     bool handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params) override;
 
 private:
+    LRESULT onCustomMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) override;
+    void fitContent();
     void doConvert();
     void togglePin();
     void browseFile(bool isSource);
@@ -37,7 +39,6 @@ private:
     void setDropdownUI(const char* id, int value);
 
     ConvertConfig config_;
-    bool isPinned_ = false;
 };
 
 }  // namespace NextKey

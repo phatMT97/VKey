@@ -93,6 +93,7 @@ private:
 
     // Window control
     void togglePin();
+    void notifySubdialogPinState();
 
     // UI helpers
     void setToggleState(const std::wstring& id, bool checked);
