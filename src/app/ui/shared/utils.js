@@ -364,7 +364,9 @@ function initCustomTooltips() {
         (function(target) {
             target.addEventListener("mouseenter", function() { showTooltip(target); });
             target.addEventListener("mouseleave", function() { hideTooltip(); });
-            target.addEventListener("click",      function() { hideTooltip(); });
+            if (!target.classList.contains("info-icon")) {
+                target.addEventListener("click", function() { hideTooltip(); });
+            }
         })(el);
     }
 }

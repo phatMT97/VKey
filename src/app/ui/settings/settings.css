@@ -829,8 +829,9 @@
     text-align: right;
 }
 
-/* Info Button Styling */
-.btn-info {
+/* Help icons share their layout with the actionable keymap button. */
+.btn-info,
+.info-icon {
     display: block;
     padding: 0;
     margin: 0;
@@ -840,18 +841,26 @@
     border: none;
     width: 16px;
     height: 16px;
-    cursor: pointer;
     border-radius: 50%;
     position: static !important;
     /* Force tooltip anchor to fall back to the parent .setting-row */
     /* Just in case for hover effect shape */
 }
 
+.btn-info {
+    cursor: pointer;
+}
+
+.info-icon {
+    cursor: default;
+}
+
 #btn-userdefined {
     vertical-align: middle;
 }
 
-.btn-info>svg {
+.btn-info>svg,
+.info-icon>svg {
     width: 16px;
     height: 16px;
     fill: var(--text-primary);
@@ -861,7 +870,8 @@
         transform 0.2s ease;
 }
 
-.btn-info:hover>svg {
+.btn-info:hover>svg,
+.info-icon:hover>svg {
     fill: var(--color-primary);
     /* Highlight color on hover */
     transform: scale(1.1);
