@@ -20,7 +20,7 @@
 /* Left Column: Form & Triggers */
 .macro-form-col {
     flow: vertical;
-    width: 320px;
+    width: 270px;
     height: *;
     overflow: hidden;
 }
@@ -93,7 +93,7 @@
 
 .trigger-checkboxes {
     flow: horizontal-wrap;
-    border-spacing: 10px;
+    border-spacing: 8px;
     width: 100%;
 }
 

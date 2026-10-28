@@ -199,6 +199,18 @@ inline void FocusExistingWindow(HWND hwnd) noexcept {
     SetForegroundWindow(hwnd);
 }
 
+/// Handoff foreground activation to owner window before a child process exits.
+inline void HandoffFocusToOwner(HWND ownerHwnd) noexcept {
+    if (!ownerHwnd || !IsWindow(ownerHwnd)) return;
+
+    DWORD parentPid = 0;
+    GetWindowThreadProcessId(ownerHwnd, &parentPid);
+    if (parentPid != 0) {
+        AllowSetForegroundWindow(parentPid);
+    }
+    FocusExistingWindow(ownerHwnd);
+}
+
 [[nodiscard]] inline POINT GetCenteredPos(HWND referenceHwnd, int width, int height) noexcept {
     HMONITOR mon = MonitorFromWindow(referenceHwnd ? referenceHwnd : GetDesktopWindow(),
                                      MONITOR_DEFAULTTOPRIMARY);

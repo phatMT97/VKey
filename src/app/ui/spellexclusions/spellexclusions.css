@@ -91,7 +91,7 @@
 
 .list-card {
     flex: 1;
-    min-height: 160px;
+    min-height: 120px;
     display: flex;
     flex-direction: column;
     margin-bottom: 8px;

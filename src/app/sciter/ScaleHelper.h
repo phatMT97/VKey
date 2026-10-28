@@ -93,6 +93,16 @@ public:
     }
 
     /**
+     * Scale a single dimension using per-window DPI (with optional padding before scale).
+     * Falls back to system DPI when hwnd is null.
+     */
+    [[nodiscard]] static int scaleForWindow(HWND hwnd, int baseDimension, int pad = 0) noexcept {
+        double dpiScale = getDpiScaleForWindow(hwnd);
+        double factor = (std::max)(MIN_SCALE, (std::min)(MAX_SCALE, dpiScale));
+        return static_cast<int>((baseDimension + pad) * factor);
+    }
+
+    /**
      * Scale a RECT for Sciter window initialization.
      */
     [[nodiscard]] static RECT scaleRect(int baseWidth, int baseHeight) noexcept {

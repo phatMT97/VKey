@@ -13,6 +13,9 @@ namespace NextKey {
 /// Dialog for managing user-defined input method keymap (Sciter subdialog)
 class UserDefinedDialog : public SciterSubDialog {
 public:
+    static constexpr int kBaseWidth  = 420;
+    static constexpr int kBaseHeight = 480;
+
     UserDefinedDialog(HWND parent);
 
     // Override event handler for VALUE_CHANGED on #val-action

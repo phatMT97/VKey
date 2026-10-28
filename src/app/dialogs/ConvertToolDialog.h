@@ -12,6 +12,9 @@ namespace NextKey {
 /// Dialog for Vietnamese text encoding conversion (Sciter subdialog)
 class ConvertToolDialog : public SciterSubDialog {
 public:
+    static constexpr int kBaseWidth  = 420;
+    static constexpr int kBaseHeight = 520;
+
     ConvertToolDialog(HWND parent);
 
     // Override event handler for VALUE_CHANGED, BUTTON_CLICK, and DOCUMENT_COMPLETE

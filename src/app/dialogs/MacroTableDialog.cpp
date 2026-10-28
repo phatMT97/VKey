@@ -21,7 +21,7 @@ MacroTableDialog::MacroTableDialog(HWND parent)
     : SciterSubDialog({
         L"this://app/macro/macro.html",
         L"VKey - Macro Table",
-        700, 420, parent, false, 36, 40, true
+        kBaseWidth, kBaseHeight, parent, false, 36, 40, true
     }) {
     macros_ = ConfigManager::LoadMacros(ConfigManager::GetConfigPath());
     populateList();

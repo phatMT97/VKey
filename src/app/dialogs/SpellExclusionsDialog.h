@@ -13,6 +13,9 @@ namespace NextKey {
 /// Implements N7 Lexicon contract with 8 functional groups.
 class SpellExclusionsDialog : public SciterSubDialog {
 public:
+    static constexpr int kBaseWidth  = 420;
+    static constexpr int kBaseHeight = 480;
+
     explicit SpellExclusionsDialog(HWND parent);
 
     bool handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params) override;

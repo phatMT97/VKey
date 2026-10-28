@@ -22,7 +22,7 @@ SpellExclusionsDialog::SpellExclusionsDialog(HWND parent)
     : SciterSubDialog({
         L"this://app/spellexclusions/spellexclusions.html",
         L"VKey - Spell Exclusions",
-        420, 580, parent, false, 36, 40, true
+        kBaseWidth, kBaseHeight, parent, false, 36, 40, true
     }) {
     loadData();
     populateUI();

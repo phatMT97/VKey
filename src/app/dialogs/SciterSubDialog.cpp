@@ -36,8 +36,8 @@ static int SubDialogWin10Pad() noexcept {
 
 SciterSubDialog::SciterSubDialog(const SubDialogConfig& config)
     : sciter::window(SW_MAIN, RECT{-10000, -10000,
-        -10000 + ScaleHelper::scale(config.baseWidth + SubDialogWin10Pad()),
-        -10000 + ScaleHelper::scale(config.baseHeight + SubDialogWin10Pad())})
+        -10000 + ScaleHelper::scaleForWindow(config.parentHwnd, config.baseWidth, SubDialogWin10Pad()),
+        -10000 + ScaleHelper::scaleForWindow(config.parentHwnd, config.baseHeight, SubDialogWin10Pad())})
     , config_(config) {
 
     s_instance = this;
@@ -183,14 +183,12 @@ SciterSubDialog::SciterSubDialog(const SubDialogConfig& config)
     if (posY < workArea.top)  posY = workArea.top;
 
     bool isTopmost = config_.topmost;
-    if (config_.parentHwnd) {
+    if (config_.parentHwnd && IsWindow(config_.parentHwnd)) {
         // Inherit TOPMOST only if parent window is currently TOPMOST (e.g. Settings pinned)
         LONG_PTR exStyle = GetWindowLongPtrW(config_.parentHwnd, GWL_EXSTYLE);
         if (exStyle & WS_EX_TOPMOST) {
             isTopmost = true;
         }
-        // Establish Win32 window ownership so this dialog always stays above parent without being global TOPMOST
-        ::SetWindowLongPtrW(get_hwnd(), GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(config_.parentHwnd));
     }
 
     SetWindowPos(get_hwnd(), isTopmost ? HWND_TOPMOST : HWND_NOTOPMOST,
@@ -291,7 +289,9 @@ LRESULT CALLBACK SciterSubDialog::SubclassProc(
     if (msg == WM_CLOSE) {
         if (s_instance) {
             s_instance->onBeforeClose();
+            HandoffFocusToOwner(s_instance->config_.parentHwnd);
         }
+        ShowWindow(hwnd, SW_HIDE);
         RemoveWindowSubclass(hwnd, SubclassProc, 1);
         ExitProcess(0);
     }

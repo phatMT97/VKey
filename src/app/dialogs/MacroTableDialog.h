@@ -12,6 +12,9 @@ namespace NextKey {
 /// Dialog for managing macro/shorthand table (Sciter subdialog)
 class MacroTableDialog : public SciterSubDialog {
 public:
+    static constexpr int kBaseWidth  = 600;
+    static constexpr int kBaseHeight = 420;
+
     MacroTableDialog(HWND parent);
 
     // Override event handler for VALUE_CHANGED on #val-action
