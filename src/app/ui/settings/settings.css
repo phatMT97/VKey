@@ -677,7 +677,6 @@
     padding: 20px 16px;
     position: relative;
     z-index: 1;
-    /* Establish stacking context so update-card tooltip can render above */
 }
 
 .app-name {
@@ -721,7 +720,6 @@
     box-shadow: inset 0 0 0 1px var(--border-card);
     position: relative;
     z-index: 2;
-    /* Higher than about-content so its tooltip-upwards renders above the text block */
 }
 
 .update-card .setting-row {
@@ -843,8 +841,6 @@
     height: 16px;
     border-radius: 50%;
     position: static !important;
-    /* Force tooltip anchor to fall back to the parent .setting-row */
-    /* Just in case for hover effect shape */
 }
 
 .btn-info {
@@ -852,15 +848,26 @@
 }
 
 .info-icon {
-    cursor: default;
+    cursor: help;
+    hit-margin: 4px;
+    /* Keep the tooltip owner as the mouse target. Sciter can hit an inline
+       SVG even when that SVG has pointer-events:none. */
+    foreground-image: icon(0 0 256 256; M128,20A108,108,0,1,0,236,128,108.12,108.12,0,0,0,128,20Zm0,192a84,84,0,1,1,84-84A84.09,84.09,0,0,1,128,212Zm20-36a12,12,0,0,1-12,12,20,20,0,0,1-20-20V128a12,12,0,0,1,0-24,20,20,0,0,1,20,20v40A12,12,0,0,1,148,176ZM112,84a16,16,0,1,1,16,16A16,16,0,0,1,112,84Z);
+    foreground-repeat: no-repeat;
+    foreground-size: contain;
+    fill: var(--text-primary);
+    transition: fill 0.2s ease;
+}
+
+.info-icon:hover {
+    fill: var(--color-primary);
 }
 
 #btn-userdefined {
     vertical-align: middle;
 }
 
-.btn-info>svg,
-.info-icon>svg {
+.btn-info>svg {
     width: 16px;
     height: 16px;
     fill: var(--text-primary);
@@ -870,8 +877,7 @@
         transform 0.2s ease;
 }
 
-.btn-info:hover>svg,
-.info-icon:hover>svg {
+.btn-info:hover>svg {
     fill: var(--color-primary);
     /* Highlight color on hover */
     transform: scale(1.1);

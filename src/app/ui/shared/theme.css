@@ -189,7 +189,7 @@ body.dark {
 }
 
 /* Sciter specific popup style override (dropdown lists) */
-popup {
+popup[role="list"] {
     border-radius: 6px !important;
     padding: 4px !important;
     background-color: #ffffff !important; 
@@ -198,26 +198,26 @@ popup {
     border: none !important;
 }
 
-popup option {
+popup[role="list"] option {
     border-radius: 4px !important;
     padding: 4px 8px !important;
     background-color: transparent !important;
 }
 
-popup option:hover,
-popup option:checked {
+popup[role="list"] option:hover,
+popup[role="list"] option:checked {
     background-color: #3B82F6 !important;
     color: white !important;
 }
 
-body.dark popup {
+body.dark popup[role="list"] {
     background-color: rgba(26, 26, 36, 0.98) !important;
     color: #F9FAFB !important;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4) !important;
     backdrop-filter: blur(10px);
 }
 
-body.dark popup option:hover {
+body.dark popup[role="list"] option:hover {
     background-color: #3B82F6 !important;
     color: white !important;
 }
@@ -242,43 +242,11 @@ body.dark select option:checked {
     color: white !important;
 }
 
-/* ============================================
-   CUSTOM TOOLTIP
-   Use data-tooltip attribute (NOT title) to avoid native tooltip!
-   Tooltip rendering is handled by JS (see utils.js → initCustomTooltips)
-   which uses .js-tooltip with position:fixed to avoid stacking context bugs.
-   ============================================ */
-
-/* Hide Sciter's native ::before arrow which renders as a black bar */
-[data-tooltip]:hover::before {
-    display: none !important;
-}
-
-/* STACKING FIX: Ensure hovered rows are raised visually */
-[data-tooltip]:hover,
-.setting-row:hover,
-.option-row:hover,
-.switch-key-item:hover {
-    z-index: 99999 !important;
-}
-
 .setting-row,
 .option-row,
 .switch-key-item {
     position: relative;
     z-index: auto;
-}
-
-@keyframes tooltipFadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(4px);
-    }
-
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
 }
 
 /* ============================================
@@ -354,14 +322,12 @@ body.dark select option:checked {
 }
 
 /* ============================================
-   JS-BASED TOOLTIP STYLES
-   Uses position:fixed to escape all stacking contexts.
-   Background is always solid dark regardless of parent z-index.
+   NATIVE SCITER HELP TOOLTIPS
+   Sciter creates a windowed popup from the icon's title on mouse idle.
+   Its placement and lifetime are managed by the engine.
    ============================================ */
-.js-tooltip {
-    position: fixed;
-    /* escape all stacking contexts — no more transparency bugs */
-    background-color: rgba(26, 26, 36, 0.96);
+.info-icon > popup[role="tooltip"] {
+    background: rgba(26, 26, 36, 0.96);
     /* 96% opacity - 4% more transparent than solid */
     color: #ffffff;
     font-size: 13px;
@@ -373,10 +339,13 @@ body.dark select option:checked {
     min-width: 150px;
     max-width: 250px;
     text-align: left;
-    z-index: 999999;
-    pointer-events: none;
     border: 1px solid rgba(255, 255, 255, 0.15);
     box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* Keep help text from the right-hand panel inside the settings window. */
+.advanced-section .info-icon > popup[role="tooltip"] {
+    popup-position: top-right bottom-right;
 }
 
 /* ============================================
