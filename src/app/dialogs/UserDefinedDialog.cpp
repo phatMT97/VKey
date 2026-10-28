@@ -14,7 +14,7 @@ UserDefinedDialog::UserDefinedDialog(HWND parent)
     : SciterSubDialog({
         L"this://app/userdefined/userdefined.html",
         L"VKey - User Defined Input",
-        460, 550, parent, true, 36, 40, true
+        460, 550, parent, false, 36, 40, true
     }) {
     TypingConfig config = ConfigManager::LoadOrDefault();
     keyMap_ = config.customKeyMap;

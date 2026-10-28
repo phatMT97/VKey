@@ -16,6 +16,9 @@
 #include <windows.h>
 #include <ole2.h>
 #include <vector>
+#include <string>
+#include <unordered_map>
+#include <memory>
 
 namespace NextKey {
 
@@ -113,9 +116,19 @@ inline void InitSciterSubprocess() {
 /// If a window with the given title already exists, brings it to front.
 /// Tracks the process handle for cleanup via TerminateAllSubprocesses().
 inline void SpawnSubprocess(const wchar_t* windowTitle, const wchar_t* cliArgs) {
+    using ProcessHandle = std::unique_ptr<void, decltype(&CloseHandle)>;
+    static std::unordered_map<std::wstring, ProcessHandle> pending;
     if (HWND existing = FindWindowW(nullptr, windowTitle)) {
+        pending.erase(windowTitle);
         FocusExistingWindow(existing);
         return;
+    }
+
+    // Keep one startup in flight until its window appears or its process exits.
+    // A slow disk/first launch may take longer than a fixed debounce interval.
+    if (auto it = pending.find(windowTitle); it != pending.end()) {
+        if (WaitForSingleObject(it->second.get(), 0) == WAIT_TIMEOUT) return;
+        pending.erase(it);
     }
 
     wchar_t exePath[MAX_PATH];
@@ -127,7 +140,13 @@ inline void SpawnSubprocess(const wchar_t* windowTitle, const wchar_t* cliArgs) 
     STARTUPINFOW si = { sizeof(si) };
     PROCESS_INFORMATION pi;
     if (CreateProcessW(nullptr, cmdLine, nullptr, nullptr, FALSE, 0, nullptr, nullptr, &si, &pi)) {
+        AllowSetForegroundWindow(pi.dwProcessId);
         CloseHandle(pi.hThread);
+        HANDLE startupHandle = nullptr;
+        if (DuplicateHandle(GetCurrentProcess(), pi.hProcess, GetCurrentProcess(),
+                            &startupHandle, SYNCHRONIZE, FALSE, 0)) {
+            pending.emplace(windowTitle, ProcessHandle(startupHandle, &CloseHandle));
+        }
         TrackChildProcess(pi.hProcess);  // Track for cleanup, don't close
     }
 }

@@ -21,8 +21,8 @@ namespace NextKey {
 SpellExclusionsDialog::SpellExclusionsDialog(HWND parent)
     : SciterSubDialog({
         L"this://app/spellexclusions/spellexclusions.html",
-        L"VKey - Từ điển & Loại trừ chính tả",
-        420, 580, parent, true, 36, 40, true
+        L"VKey - Spell Exclusions",
+        420, 580, parent, false, 36, 40, true
     }) {
     loadData();
     populateUI();

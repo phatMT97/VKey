@@ -213,6 +213,12 @@ function initializeToggles() {
             if (id === "tsf-apps") {
                 updateTsfChildren(newState);
             }
+            if (id === "use-macro") {
+                updateMacroChildren(newState);
+            }
+            if (id === "auto-caps-macro") {
+                updateMacroCapsChildren(newState);
+            }
 
             // Show toast message (except show-advanced)
             if (id !== "show-advanced" && typeof showToastI18n === "function") {
@@ -253,6 +259,10 @@ function initializeToggles() {
 
     // Initial state: sync userdefined button
     updateUserDefinedButton();
+    var useMacro = document.getElementById("use-macro");
+    updateMacroChildren(useMacro && useMacro.classList.contains("checked"));
+    var macroCaps = document.getElementById("auto-caps-macro");
+    updateMacroCapsChildren(macroCaps && macroCaps.classList.contains("checked"));
 }
 
 // Grey out a child toggle + its row when the parent option is off.
@@ -275,6 +285,14 @@ function setToggleRowEnabled(id, enabled) {
 
 function updateTsfChildren(tsfEnabled) {
     setToggleRowEnabled("hide-preedit-underline", tsfEnabled);
+}
+
+function updateMacroChildren(enabled) {
+    setToggleRowEnabled("macro-undo-backspace", enabled);
+}
+
+function updateMacroCapsChildren(enabled) {
+    setToggleRowEnabled("macro-title-case", enabled);
 }
 
 function updateUserDefinedButton() {

@@ -13,7 +13,7 @@ AppOverridesDialog::AppOverridesDialog(HWND parent)
     : WindowPickerDialog({
         L"this://app/appoverrides/appoverrides.html",
         L"VKey - App Overrides",
-        400, 460, parent, true, 36, 40, true
+        400, 460, parent, false, 36, 40, true
     }) {
     entries_ = ConfigManager::LoadAppOverrides(ConfigManager::GetConfigPath());
     populateList();

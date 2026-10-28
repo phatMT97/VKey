@@ -11,67 +11,125 @@
 namespace NextKey::Macro {
 
 namespace {
-[[nodiscard]] std::wstring LowerCopy(std::wstring s) {
-    for (auto& c : s) c = static_cast<wchar_t>(std::towlower(c));
+[[nodiscard]] std::wstring LowerCopy(std::wstring s, const CaseMapper& mapper) {
+    if (!s.empty()) mapper.Lower(s.data(), s.size());
     return s;
 }
 
-[[nodiscard]] bool HasUpper(std::wstring_view s) noexcept {
+[[nodiscard]] bool HasUpper(std::wstring_view s, const CaseMapper& mapper) {
     for (wchar_t c : s) {
-        if (std::iswupper(c)) return true;
+        wchar_t lower = c;
+        mapper.Lower(&lower, 1);
+        if (lower != c) return true;
     }
     return false;
+}
+
+enum class CapsStyle { None, FirstLetter, Words, All };
+
+[[nodiscard]] CapsStyle DetectCaps(std::wstring_view typed, bool enabled,
+                                   bool titleCase, bool sentenceCapped,
+                                   const CaseMapper& mapper) {
+    if (enabled) {
+        std::size_t letters = 0;
+        bool allUpper = true;
+        bool initialUpper = false;
+        for (wchar_t c : typed) {
+            wchar_t lower = c, upper = c;
+            mapper.Lower(&lower, 1);
+            mapper.Upper(&upper, 1);
+            if (lower == upper) continue;
+            if (letters++ == 0) initialUpper = (c == upper);
+            else initialUpper = initialUpper && (c == lower);
+            allUpper = allUpper && (c == upper);
+        }
+        // A single capital is an initial, even in a key such as "A1".
+        if (allUpper && letters > 1) return CapsStyle::All;
+        if (initialUpper) return titleCase ? CapsStyle::Words : CapsStyle::FirstLetter;
+    }
+    // Sentence auto-caps never implies title case, even with macro casing off.
+    return sentenceCapped ? CapsStyle::FirstLetter : CapsStyle::None;
+}
+
+void ApplyCaps(std::wstring& text, CapsStyle style, const CaseMapper& mapper) {
+    if (style == CapsStyle::None) return;
+    bool wordStart = true;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        // Preserve the macro newline token for both output dispatch paths.
+        if (text[i] == L'\\' && i + 1 < text.size() && text[i + 1] == L'n') {
+            ++i;
+            wordStart = true;
+            continue;
+        }
+        if (style == CapsStyle::All) {
+            mapper.Upper(&text[i], 1);
+            continue;
+        }
+        if (std::iswspace(text[i]) ||
+            (std::iswpunct(text[i]) && text[i] != L'\'' && text[i] != L'\u2019')) {
+            wordStart = true;
+            continue;
+        }
+        wchar_t lower = text[i], upper = text[i];
+        mapper.Lower(&lower, 1);
+        mapper.Upper(&upper, 1);
+        if (lower == upper) continue;
+        if (style == CapsStyle::FirstLetter || wordStart) text[i] = upper;
+        if (style == CapsStyle::FirstLetter) return;
+        wordStart = false;
+    }
 }
 }  // namespace
 
 MacroPlan Plan(const PlanInputs& in, const CaseMapper& mapper) {
     MacroPlan plan{};
 
-    std::wstring lowerKey = LowerCopy(in.rawMacroBuffer);
-    bool matchedExact = false;
     bool matchedViaComposition = false;
+    std::wstring_view typed = in.rawMacroBuffer;
+    // Lowercase keys remain flexible regardless of the output-case settings;
+    // keys carrying capitals can only win by their exact spelling.
+    auto lookup = [&](const std::wstring& candidate) {
+        auto match = in.macroTable.find(candidate);
+        return match != in.macroTable.end() ? match
+            : in.macroTable.find(LowerCopy(candidate, mapper));
+    };
 
     // Priority 1: full buffer (raw exact, fall back to lowered)
-    auto it = in.macroTable.find(in.rawMacroBuffer);
-    if (it != in.macroTable.end()) {
-        matchedExact = true;
-    } else {
-        it = in.macroTable.find(lowerKey);
-    }
+    auto it = lookup(in.rawMacroBuffer);
     if (it != in.macroTable.end() && in.triggerChar > L' ') {
         plan.isPartOfMacro = true;
     }
 
     // Priority 2: buffer without trigger char (e.g. "btw" from "btw.")
     if (it == in.macroTable.end() && in.triggerChar > L' ' &&
-        lowerKey.size() > 1 && lowerKey.back() == in.triggerChar) {
+        in.rawMacroBuffer.size() > 1 && in.rawMacroBuffer.back() == in.triggerChar) {
         std::wstring rawWithoutTrigger =
             in.rawMacroBuffer.substr(0, in.rawMacroBuffer.size() - 1);
-        it = in.macroTable.find(rawWithoutTrigger);
-        if (it != in.macroTable.end()) {
-            matchedExact = true;
-        } else {
-            it = in.macroTable.find(lowerKey.substr(0, lowerKey.size() - 1));
-        }
+        it = lookup(rawWithoutTrigger);
+        typed.remove_suffix(1);
     }
 
-    // Priority 3/4: composition-based matches stay case-insensitive only.
+    std::wstring compWithTrigger;
+    // Priority 3/4: use the same key rules for composed text as for raw input.
     if (it == in.macroTable.end() && !in.previousComposition.empty()) {
-        std::wstring compKey = LowerCopy(in.previousComposition);
         if (in.triggerChar > L' ') {
-            it = in.macroTable.find(compKey + in.triggerChar);
+            compWithTrigger = in.previousComposition + in.triggerChar;
+            it = lookup(compWithTrigger);
             if (it != in.macroTable.end()) {
                 plan.isPartOfMacro = true;
                 matchedViaComposition = true;
+                typed = compWithTrigger;
             }
         }
         if (it == in.macroTable.end()) {
-            it = in.macroTable.find(compKey);
+            it = lookup(in.previousComposition);
             if (it != in.macroTable.end()) matchedViaComposition = true;
         }
+        if (!plan.isPartOfMacro) typed = in.previousComposition;
     }
     if (it == in.macroTable.end()) return plan;   // matched: false
     plan.matched = true;
+    plan.shortcut = std::wstring(typed);
 
     // Backspace count = on-screen characters that need erasing.
     if (matchedViaComposition) {
@@ -96,60 +154,15 @@ MacroPlan Plan(const PlanInputs& in, const CaseMapper& mapper) {
         if (in.triggerChar > L' ' && plan.bsCount > 0) --plan.bsCount;
     }
 
-    // Auto-capitalize expansion to match typed case.
+    // Explicitly cased keys are verbatim overrides. All other expansions start
+    // with the stored text and only gain capitals; existing capitals never gate
+    // the transform. Case intent comes from the candidate that actually matched.
     plan.expansion = it->second;
-    // An exact match on a key that itself carries uppercase (e.g. "nMa") is the user
-    // spelling out the casing they want — leave the stored expansion alone. An exact
-    // match on an all-lowercase key still needs the recap pass, because the raw buffer
-    // may be lowercase only by virtue of holding the pre-auto-cap character.
-    if (in.autoCapsEnabled && !matchedViaComposition &&
-        !in.rawMacroBuffer.empty() && !plan.expansion.empty() &&
-        !(matchedExact && HasUpper(it->first))) {
-        std::wstring expansionLower = plan.expansion;
-        mapper.Lower(expansionLower.data(), expansionLower.size());
-        const bool expansionAllLower = (expansionLower == plan.expansion);
-        if (expansionAllLower) {
-            bool allUpper = true;
-            bool anyAlpha = false;
-            for (auto c : in.rawMacroBuffer) {
-                if (!std::iswalpha(c)) continue;
-                anyAlpha = true;
-                if (!std::iswupper(c)) { allUpper = false; break; }
-            }
-            allUpper = allUpper && anyAlpha && in.rawMacroBuffer.size() > 1;
-            const bool firstUpper =
-                (std::iswupper(in.rawMacroBuffer[0]) != 0) || in.wasFirstCharAutoCapped;
-            if (allUpper) {
-                // Skip \n escape: uppercasing 'n' breaks newline detection downstream.
-                for (std::size_t i = 0; i < plan.expansion.size(); ++i) {
-                    if (plan.expansion[i] == L'\\' && i + 1 < plan.expansion.size() &&
-                        plan.expansion[i + 1] == L'n') {
-                        ++i;
-                    } else {
-                        mapper.Upper(&plan.expansion[i], 1);
-                    }
-                }
-            } else if (firstUpper) {
-                bool newWord = true;
-                for (std::size_t i = 0; i < plan.expansion.size(); ++i) {
-                    if (plan.expansion[i] == L'\\' && i + 1 < plan.expansion.size() &&
-                        plan.expansion[i + 1] == L'n') {
-                        ++i;
-                        newWord = true;
-                    } else if (std::iswspace(plan.expansion[i]) ||
-                               (std::iswpunct(plan.expansion[i]) &&
-                                plan.expansion[i] != L'\'' &&
-                                plan.expansion[i] != L'\u2019')) {
-                        newWord = true;
-                    } else {
-                        if (newWord) {
-                            mapper.Upper(&plan.expansion[i], 1);
-                            newWord = false;
-                        }
-                    }
-                }
-            }
-        }
+    if (!HasUpper(it->first, mapper)) {
+        ApplyCaps(plan.expansion,
+                  DetectCaps(typed, in.autoCapsEnabled, in.titleCaseEnabled,
+                             in.wasFirstCharAutoCapped && !matchedViaComposition, mapper),
+                  mapper);
     }
 
     // Clipboard threshold: Unicode + size > threshold.
@@ -183,7 +196,7 @@ std::vector<Segment> BuildSegments(std::wstring_view expansion, CodeTable codeTa
     for (std::size_t i = 0; i < expansion.size(); ++i) {
         if (expansion[i] == L'\\' && i + 1 < expansion.size() && expansion[i + 1] == L'n') {
             flush();
-            segments.push_back(Segment{.isReturn = true});
+            segments.push_back(Segment{.isReturn = true, .text = {}});
             ++i;
             continue;
         }
@@ -229,6 +242,20 @@ bool IsCommitTrigger(uint32_t vkCode) noexcept {
 bool IsTextProducingTrigger(uint32_t vkCode, wchar_t triggerChar) noexcept {
     return IsCommitTrigger(vkCode)
         && (vkCode == 0x20 || triggerChar > L' ');
+}
+
+bool CanUndoWithBackspaces(std::wstring_view expansion) noexcept {
+    for (std::size_t i = 0; i < expansion.size(); ++i) {
+        const auto ch = static_cast<uint32_t>(expansion[i]);
+        if (ch < 0x20 || ch > 0xFFFF || (ch >= 0xD800 && ch <= 0xDFFF)
+            || (ch >= 0x0300 && ch <= 0x036F) || (ch >= 0x1AB0 && ch <= 0x1AFF)
+            || (ch >= 0x1DC0 && ch <= 0x1DFF) || (ch >= 0x200C && ch <= 0x200D)
+            || (ch >= 0x20D0 && ch <= 0x20FF) || (ch >= 0xFE00 && ch <= 0xFE2F)
+            || (ch == L'\\' && i + 1 < expansion.size() && expansion[i + 1] == L'n')) {
+            return false;
+        }
+    }
+    return true;
 }
 
 bool IsVerbatimCommitTrigger(wchar_t triggerChar) noexcept {

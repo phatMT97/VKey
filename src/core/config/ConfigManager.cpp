@@ -375,6 +375,8 @@ std::optional<TypingConfig> ConfigManager::LoadFromFile(const std::wstring& path
             // HotkeyRegistry, then drop both the field and this loader.
             config.escRestoreRawEnabled = (*features)["esc_restore_raw"].value_or(false);
             config.autoCapsMacro = (*features)["auto_caps_macro"].value_or(false);
+            config.macroUndoOnBackspace = (*features)["macro_undo_on_backspace"].value_or(false);
+            config.macroTitleCase = (*features)["macro_title_case"].value_or(false);
             config.allowEnglishBypass = (*features)["allow_english_bypass"].value_or(false);
             config.suggestKeepChars = (*features)["suggest_keep_chars"].value_or(false);
             config.debugLogEnabled = (*features)["debug_log"].value_or(false);
@@ -469,6 +471,8 @@ bool ConfigManager::SaveToFile(const std::wstring& path, const TypingConfig& con
         features.insert_or_assign("quick_end_consonant", config.quickEndConsonant);
         features.insert_or_assign("esc_restore_raw", config.escRestoreRawEnabled);
         features.insert_or_assign("auto_caps_macro", config.autoCapsMacro);
+        features.insert_or_assign("macro_undo_on_backspace", config.macroUndoOnBackspace);
+        features.insert_or_assign("macro_title_case", config.macroTitleCase);
         features.insert_or_assign("allow_english_bypass", config.allowEnglishBypass);
         features.insert_or_assign("suggest_keep_chars", config.suggestKeepChars);
         features.insert_or_assign("debug_log", config.debugLogEnabled);

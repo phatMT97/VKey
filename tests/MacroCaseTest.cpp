@@ -4,24 +4,25 @@
 #include <gtest/gtest.h>
 
 #include "core/MacroCase.h"
+#include "core/engine/VietnameseTables.h"
 
 namespace NextKey::Macro {
 namespace {
 
-struct AsciiCaseMapper final : CaseMapper {
+struct VietnameseCaseMapper final : CaseMapper {
     void Upper(wchar_t* buf, std::size_t n) const override {
         for (std::size_t i = 0; i < n; ++i)
-            if (buf[i] >= L'a' && buf[i] <= L'z') buf[i] = buf[i] - L'a' + L'A';
+            buf[i] = ToUpperVietnamese(buf[i]);
     }
     void Lower(wchar_t* buf, std::size_t n) const override {
         for (std::size_t i = 0; i < n; ++i)
-            if (buf[i] >= L'A' && buf[i] <= L'Z') buf[i] = buf[i] - L'A' + L'a';
+            buf[i] = ToLowerVietnamese(buf[i]);
     }
 };
 
 // PlanFixture helper — shared by all Plan test suites (Tasks 4b–4e)
 struct PlanFixture {
-    AsciiCaseMapper mapper;
+    VietnameseCaseMapper mapper;
     std::wstring raw;
     std::wstring prevComp;
     std::vector<uint8_t> widths;
@@ -29,6 +30,7 @@ struct PlanFixture {
     bool crossCommit = false;
     CodeTable codeTable = CodeTable::Unicode;
     bool autoCaps = false;
+    bool titleCase = false;
     bool wasFirstCharAutoCapped = false;
     wchar_t trigger = L' ';
     std::size_t threshold = 200;
@@ -42,6 +44,7 @@ struct PlanFixture {
             .macroCrossCommit      = crossCommit,
             .currentCodeTable      = codeTable,
             .autoCapsEnabled       = autoCaps,
+            .titleCaseEnabled      = titleCase,
             .wasFirstCharAutoCapped = wasFirstCharAutoCapped,
             .triggerChar           = trigger,
             .clipboardThreshold    = threshold,
@@ -272,7 +275,7 @@ TEST(PlanAutoCapsDecisionTest, MatchedExactSuppressesAutoCaps) {
     EXPECT_EQ(p.expansion, L"by the way");   // matchedExact → no transform
 }
 
-TEST(PlanAutoCapsDecisionTest, MatchedViaCompositionSuppressesAutoCaps) {
+TEST(PlanAutoCapsDecisionTest, CompositionUsesItsOwnCase) {
     PlanFixture f;
     f.table[L"chao"] = L"xin chao";
     f.prevComp = L"CHAO";
@@ -281,10 +284,10 @@ TEST(PlanAutoCapsDecisionTest, MatchedViaCompositionSuppressesAutoCaps) {
     f.autoCaps = true;
     auto p = f.Run();
     EXPECT_TRUE(p.matched);
-    EXPECT_EQ(p.expansion, L"xin chao");   // composition match → no transform
+    EXPECT_EQ(p.expansion, L"XIN CHAO");
 }
 
-TEST(PlanAutoCapsDecisionTest, ExpansionHasUppercaseSuppressesTransform) {
+TEST(PlanAutoCapsDecisionTest, ExistingCapitalsDoNotSuppressTransform) {
     PlanFixture f;
     f.table[L"omw"] = L"On My Way";   // expansion not all-lower
     f.raw = L"OMW";
@@ -292,7 +295,7 @@ TEST(PlanAutoCapsDecisionTest, ExpansionHasUppercaseSuppressesTransform) {
     f.autoCaps = true;
     auto p = f.Run();
     EXPECT_TRUE(p.matched);
-    EXPECT_EQ(p.expansion, L"On My Way");
+    EXPECT_EQ(p.expansion, L"ON MY WAY");
 }
 
 TEST(PlanAutoCapsDecisionTest, AllUpperRawTransformsToAllUpperExpansion) {
@@ -314,10 +317,10 @@ TEST(PlanAutoCapsDecisionTest, FirstUpperRawTransformsToFirstUpperExpansion) {
     f.autoCaps = true;
     auto p = f.Run();
     EXPECT_TRUE(p.matched);
-    EXPECT_EQ(p.expansion, L"On My Way");
+    EXPECT_EQ(p.expansion, L"On my way");
 }
 
-TEST(PlanAutoCapsDecisionTest, FirstUpperRawTransformsToTitleCaseVietnamese) {
+TEST(PlanAutoCapsDecisionTest, FirstUpperRawTransformsToFirstLetterVietnamese) {
     PlanFixture f;
     f.table[L"lhq"] = L"liên hiệp quốc";
     f.raw = L"Lhq";
@@ -325,7 +328,7 @@ TEST(PlanAutoCapsDecisionTest, FirstUpperRawTransformsToTitleCaseVietnamese) {
     f.autoCaps = true;
     auto p = f.Run();
     EXPECT_TRUE(p.matched);
-    EXPECT_EQ(p.expansion, L"Liên Hiệp Quốc");
+    EXPECT_EQ(p.expansion, L"Liên hiệp quốc");
 }
 
 TEST(PlanAutoCapsDecisionTest, DotSeparatedExpansionPreservesDotAndFollowsTypedCase) {
@@ -333,6 +336,7 @@ TEST(PlanAutoCapsDecisionTest, DotSeparatedExpansionPreservesDotAndFollowsTypedC
     f.table[L"tp"] = L"tp.hcm";
     f.trigger = L' ';
     f.autoCaps = true;
+    f.titleCase = true;
 
     f.raw = L"tp";
     EXPECT_EQ(f.Run().expansion, L"tp.hcm");
@@ -350,6 +354,7 @@ TEST(PlanAutoCapsDecisionTest, ApostrophesStayInsideWords) {
     f.table[L"dont"] = L"don\u2019t";
     f.trigger = L' ';
     f.autoCaps = true;
+    f.titleCase = true;
 
     f.raw = L"Ill";
     EXPECT_EQ(f.Run().expansion, L"I'll Be There");
@@ -367,7 +372,7 @@ TEST(PlanAutoCapsDecisionTest, FirstCharAutoCappedTransformsToLowercaseMacro) {
     f.autoCaps = true;
     auto p = f.Run();
     EXPECT_TRUE(p.matched);
-    EXPECT_EQ(p.expansion, L"On My Way");
+    EXPECT_EQ(p.expansion, L"On my way");
 }
 
 // The old guard was `!matchedExact`, which skipped the recap pass for every exact
@@ -389,7 +394,7 @@ TEST(PlanAutoCapsDecisionTest, LowercaseExactMatchWithoutAutoCapStaysLowercase) 
 // carry wasFirstCharAutoCapped across that commit — see HookEngine step 8.
 TEST(PlanAutoCapsDecisionTest, FirstCharAutoCappedAppliesAcrossCrossCommit) {
     PlanFixture f;
-    f.table[L"oc om bok"] = L"ooc om bok";   // ASCII: AsciiCaseMapper can't upper 'ó'
+    f.table[L"oc om bok"] = L"óoc om bok";
     f.raw = L"oc om bok";
     f.crossCommit = true;
     f.wasFirstCharAutoCapped = true;
@@ -397,7 +402,7 @@ TEST(PlanAutoCapsDecisionTest, FirstCharAutoCappedAppliesAcrossCrossCommit) {
     f.autoCaps = true;
     auto p = f.Run();
     EXPECT_TRUE(p.matched);
-    EXPECT_EQ(p.expansion, L"Ooc Om Bok");
+    EXPECT_EQ(p.expansion, L"Óoc om bok");
 }
 
 TEST(PlanAutoCapsDecisionTest, FirstCharAutoCappedPreservesExactMatch) {
@@ -433,6 +438,171 @@ TEST(PlanAutoCapsEscapeTest, AllUpperPlainNStillUppercases) {
     auto p = f.Run();
     EXPECT_TRUE(p.matched);
     EXPECT_EQ(p.expansion, L"HELLO NAME");
+}
+
+// #265: the issue's original C9/C10 title-case examples remain available through
+// the child option; C11/C12 describe the new default for the same input.
+TEST(PlanMacroCasingRulesTest, Issue265Cases) {
+    struct Case {
+        const char* id;
+        const wchar_t* key;
+        const wchar_t* replacement;
+        const wchar_t* typed;
+        bool macroCaps;
+        bool titleCase;
+        bool sentenceCapped;
+        const wchar_t* expected;
+    };
+    const Case cases[] = {
+        {"C1", L"nma", L"nhưng mà", L"nma", false, false, false, L"nhưng mà"},
+        {"C2", L"nma", L"nhưng mà", L"nma", false, false, true, L"Nhưng mà"},
+        {"C3", L"nma", L"Nhưng mà", L"nma", false, false, false, L"Nhưng mà"},
+        {"C4", L"nma", L"nhưng Mà", L"nma", false, false, false, L"nhưng Mà"},
+        {"C5", L"nMa", L"nhưng mà", L"nMa", false, false, false, L"nhưng mà"},
+        {"C6", L"nma", L"nhưng mà", L"nma", true, false, false, L"nhưng mà"},
+        {"C7", L"bbh", L"bún bò huế", L"BBH", true, false, false, L"BÚN BÒ HUẾ"},
+        {"C8", L"bbh", L"bún bò Huế", L"BBH", true, false, false, L"BÚN BÒ HUẾ"},
+        {"C9", L"bbh", L"bún bò huế", L"Bbh", true, true, false, L"Bún Bò Huế"},
+        {"C10", L"bbh", L"bún bò Huế", L"Bbh", true, true, false, L"Bún Bò Huế"},
+        {"C11", L"bbh", L"bún bò huế", L"Bbh", true, false, false, L"Bún bò huế"},
+        {"C12", L"bbh", L"bún bò Huế", L"Bbh", true, false, false, L"Bún bò Huế"},
+    };
+    for (const auto& c : cases) {
+        SCOPED_TRACE(c.id);
+        PlanFixture f;
+        f.table[c.key] = c.replacement;
+        f.raw = c.typed;
+        f.autoCaps = c.macroCaps;
+        f.titleCase = c.titleCase;
+        f.wasFirstCharAutoCapped = c.sentenceCapped;
+        const auto plan = f.Run();
+        ASSERT_TRUE(plan.matched);
+        EXPECT_EQ(plan.expansion, c.expected);
+    }
+}
+
+TEST(PlanMacroCasingRulesTest, SentenceCapsIsIndependentOfBothMacroOptions) {
+    PlanFixture f;
+    f.table[L"bbh"] = L"bún bò Huế";
+    f.raw = L"bbh";
+    f.wasFirstCharAutoCapped = true;
+    for (bool macroCaps : {false, true}) {
+        for (bool titleCase : {false, true}) {
+            f.autoCaps = macroCaps;
+            f.titleCase = titleCase;
+            EXPECT_EQ(f.Run().expansion, L"Bún bò Huế");
+        }
+    }
+}
+
+TEST(PlanMacroCasingRulesTest, ExplicitKeysWinOverLowercaseFallbackAndSentenceCaps) {
+    PlanFixture f;
+    f.table = {{L"bbh", L"bún bò Huế"}, {L"Bbh", L"custom Initial"},
+               {L"BBH", L"custom ALL"}, {L"nMa", L"nhưng Mà"}};
+    f.wasFirstCharAutoCapped = true;
+    for (bool macroCaps : {false, true}) {
+        for (bool titleCase : {false, true}) {
+            f.autoCaps = macroCaps;
+            f.titleCase = titleCase;
+            for (const auto* key : {L"Bbh", L"BBH", L"nMa"}) {
+                f.raw = key;
+                EXPECT_EQ(f.Run().expansion, f.table.at(key));
+            }
+            // The screen shows Bbh, but the user typed bbh: do not select Bbh.
+            f.raw = L"bbh";
+            EXPECT_EQ(f.Run().expansion, L"Bún bò Huế");
+        }
+    }
+}
+
+TEST(PlanMacroCasingRulesTest, MixedCaseDoesNotIntroduceAnImplicitTitleCaseShortcut) {
+    PlanFixture f;
+    f.table[L"bbh"] = L"bún bò Huế";
+    f.autoCaps = true;
+    for (bool titleCase : {false, true}) {
+        f.titleCase = titleCase;
+        for (const auto* typed : {L"BBh", L"bBh", L"BbH"}) {
+            f.raw = typed;
+            const auto plan = f.Run();
+            EXPECT_TRUE(plan.matched);
+            EXPECT_EQ(plan.expansion, L"bún bò Huế");
+        }
+    }
+}
+
+TEST(PlanMacroCasingRulesTest, ExistingCapitalsAreOnlyRaisedNeverLowered) {
+    PlanFixture f;
+    f.table[L"ip"] = L"iPhone và API tại Việt Nam";
+    f.raw = L"ip";
+    f.autoCaps = true;
+    EXPECT_EQ(f.Run().expansion, L"iPhone và API tại Việt Nam");
+    f.raw = L"Ip";
+    EXPECT_EQ(f.Run().expansion, L"IPhone và API tại Việt Nam");
+    f.titleCase = true;
+    EXPECT_EQ(f.Run().expansion, L"IPhone Và API Tại Việt Nam");
+    f.raw = L"IP";
+    EXPECT_EQ(f.Run().expansion, L"IPHONE VÀ API TẠI VIỆT NAM");
+}
+
+TEST(PlanMacroCasingRulesTest, FirstLetterSkipsNonLettersAndDoesNotRecapLaterSentences) {
+    PlanFixture f;
+    f.table[L"sig"] = L"\\n  \"123 đặng\". xin chào\\niPhone";
+    f.raw = L"Sig";
+    f.autoCaps = true;
+    EXPECT_EQ(f.Run().expansion, L"\\n  \"123 Đặng\". xin chào\\niPhone");
+    f.titleCase = true;
+    EXPECT_EQ(f.Run().expansion, L"\\n  \"123 Đặng\". Xin Chào\\nIPhone");
+    f.raw = L"SIG";
+    EXPECT_EQ(f.Run().expansion, L"\\n  \"123 ĐẶNG\". XIN CHÀO\\nIPHONE");
+}
+
+TEST(PlanMacroCasingRulesTest, AllCapsMapsVietnameseVowelsAndStrokeD) {
+    PlanFixture f;
+    f.table[L"vn"] = L"đ ă â ê ô ơ ư à ả ã á ạ ằ ẳ ẵ ắ ặ ầ ẩ ẫ ấ ậ ề ể ễ ế ệ "
+                     L"ì ỉ ĩ í ị ò ỏ õ ó ọ ồ ổỗ ố ộ ờ ở ỡ ớ ợ ù ủ ũ ú ụ ừử ữ ứ ự ỳ ỷ ỹ ý ỵ";
+    f.raw = L"VN";
+    f.autoCaps = true;
+    EXPECT_EQ(f.Run().expansion,
+              L"Đ Ă Â Ê Ô Ơ Ư À Ả Ã Á Ạ Ằ Ẳ Ẵ Ắ Ặ Ầ Ẩ Ẫ Ấ Ậ Ề Ể Ễ Ế Ệ "
+              L"Ì Ỉ Ĩ Í Ị Ò Ỏ Õ Ó Ọ Ồ ỔỖ Ố Ộ Ờ Ở Ỡ Ớ Ợ Ù Ủ Ũ Ú Ụ ỪỬ Ữ Ứ Ự Ỳ Ỷ Ỹ Ý Ỵ");
+}
+
+TEST(PlanMacroCasingRulesTest, SingleCasedLetterIsAnInitialRegardlessOfKeyLength) {
+    PlanFixture f;
+    f.table = {{L"a", L"xin chào"}, {L"a1", L"xin chào"}, {L"123", L"xin chào"}};
+    f.autoCaps = true;
+    for (const auto* typed : {L"A", L"A1"}) {
+        f.raw = typed;
+        EXPECT_EQ(f.Run().expansion, L"Xin chào");
+    }
+    f.raw = L"123";
+    EXPECT_EQ(f.Run().expansion, L"xin chào");
+}
+
+TEST(PlanMacroCasingRulesTest, CompositionFallbackPreservesExactKeysAndItsOwnIntent) {
+    PlanFixture f;
+    f.table = {{L"đn", L"đà Nẵng"}, {L"Đn", L"custom casing"}};
+    f.raw = L"unmatched";
+    f.autoCaps = true;
+    f.prevComp = L"Đn";
+    EXPECT_EQ(f.Run().expansion, L"custom casing");
+    f.prevComp = L"ĐN";
+    EXPECT_EQ(f.Run().expansion, L"ĐÀ NẴNG");
+    f.table.erase(L"Đn");
+    f.prevComp = L"Đn";
+    EXPECT_EQ(f.Run().expansion, L"Đà Nẵng");
+}
+
+TEST(PlanMacroCasingRulesTest, EmptyAndUncasedReplacementsRemainValid) {
+    PlanFixture f;
+    f.autoCaps = true;
+    f.raw = L"BBH";
+    for (const auto* text : {L"", L"123!\\n", L"\U0001F600"}) {
+        f.table[L"bbh"] = text;
+        const auto plan = f.Run();
+        EXPECT_TRUE(plan.matched);
+        EXPECT_EQ(plan.expansion, text);
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -637,6 +807,70 @@ TEST(MacroTriggerDecisionTest, ShouldTriggerRejectsEscapeUnderAllTriggerConfigs)
     EXPECT_FALSE(ShouldTrigger(kVkEscape, /*space=*/false, /*enter=*/true,  /*tab=*/false, /*dir=*/false));
     EXPECT_FALSE(ShouldTrigger(kVkEscape, /*space=*/false, /*enter=*/false, /*tab=*/true,  /*dir=*/false));
     EXPECT_FALSE(ShouldTrigger(kVkEscape, /*space=*/false, /*enter=*/false, /*tab=*/false, /*dir=*/true));
+}
+
+TEST(PlanShortcutCaptureTest, CapturesExactTypedShortcutForUndo) {
+    PlanFixture f;
+    f.table[L"bbh"] = L"bún bò Huế";
+
+    // 1. Exact raw match
+    f.raw = L"bbh";
+    f.trigger = L' ';
+    auto plan1 = f.Run();
+    EXPECT_TRUE(plan1.matched);
+    EXPECT_EQ(plan1.shortcut, L"bbh");
+
+    // 2. First letter capitalized
+    f.raw = L"Bbh";
+    auto plan2 = f.Run();
+    EXPECT_TRUE(plan2.matched);
+    EXPECT_EQ(plan2.shortcut, L"Bbh");
+
+    // 3. All uppercase raw input
+    f.raw = L"BBH";
+    auto plan3 = f.Run();
+    EXPECT_TRUE(plan3.matched);
+    EXPECT_EQ(plan3.shortcut, L"BBH");
+
+    // 4. Raw buffer without trigger char (e.g. "btw" matched from "btw." with '.')
+    f.table[L"btw"] = L"by the way";
+    f.raw = L"btw.";
+    f.trigger = L'.';
+    auto plan4 = f.Run();
+    EXPECT_TRUE(plan4.matched);
+    EXPECT_EQ(plan4.shortcut, L"btw");
+
+    // 5. Matched via previousComposition
+    f.raw = L"";
+    f.prevComp = L"bbh";
+    f.trigger = L' ';
+    auto plan5 = f.Run();
+    EXPECT_TRUE(plan5.matched);
+    EXPECT_EQ(plan5.shortcut, L"bbh");
+}
+
+TEST(MacroUndoTest, BackspaceUndoRejectsAmbiguousCharacterCounts) {
+    EXPECT_TRUE(CanUndoWithBackspaces(L"bún bò Huế"));
+    EXPECT_FALSE(CanUndoWithBackspaces(L"a\\nb"));
+    EXPECT_FALSE(CanUndoWithBackspaces(L"a\r\nb"));
+    EXPECT_FALSE(CanUndoWithBackspaces(L"a\tb"));
+    EXPECT_FALSE(CanUndoWithBackspaces(L"a\u0301"));
+    EXPECT_FALSE(CanUndoWithBackspaces(L"\U0001F600"));
+}
+
+TEST(PlanShortcutCaptureTest, CompositionMatchIncludesConsumedPunctuation) {
+    PlanFixture f;
+    f.table[L"vn."] = L"Việt Nam";
+    f.raw = L"unmatched.";
+    f.prevComp = L"VN";
+    f.trigger = L'.';
+    f.autoCaps = true;
+    const auto plan = f.Run();
+    ASSERT_TRUE(plan.matched);
+    EXPECT_TRUE(plan.isPartOfMacro);
+    EXPECT_EQ(plan.shortcut, L"VN.");
+    EXPECT_EQ(plan.bsCount, 2u);
+    EXPECT_EQ(plan.expansion, L"VIỆT NAM");
 }
 
 }  // namespace

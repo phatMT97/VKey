@@ -26,6 +26,7 @@
 namespace NextKey {
 
 static TrayIcon* g_trayInstance = nullptr;
+static constexpr UINT_PTR TIMER_ID_TRAY_CLICK = 1001;
 
 TrayIcon::TrayIcon() {
     g_trayInstance = this;
@@ -124,6 +125,8 @@ void TrayIcon::Destroy() noexcept {
     ZeroMemory(&nid_, sizeof(nid_));
     pendingAppContextTarget_.store(nullptr, std::memory_order_release);
     if (hwndMessage_) {
+        KillTimer(hwndMessage_, TIMER_ID_TRAY_CLICK);
+        pendingClickToggle_ = false;
         DestroyWindow(hwndMessage_);
         hwndMessage_ = nullptr;
     }
@@ -531,6 +534,18 @@ void TrayIcon::ShowContextMenu() {
 }
 
 bool TrayIcon::ProcessMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) noexcept try {
+    // Single-click timer fired: execute deferred toggle if no double-click intervened
+    if (msg == WM_TIMER && wParam == TIMER_ID_TRAY_CLICK && hwnd == hwndMessage_) {
+        KillTimer(hwndMessage_, TIMER_ID_TRAY_CLICK);
+        if (pendingClickToggle_) {
+            pendingClickToggle_ = false;
+            if (menuCallback_) {
+                menuCallback_(TrayMenuId::ToggleMode);
+            }
+        }
+        return true;
+    }
+
     // Deferred V/E mode sync from hook callback or tray click (PostMessage pattern).
     // Settings notification is posted directly from modeChangeCallback_ (1 hop) —
     // no FindWindow needed here.
@@ -664,6 +679,10 @@ bool TrayIcon::ProcessMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     switch (LOWORD(lParam)) {
         case WM_RBUTTONUP:
         case WM_CONTEXTMENU:
+            if (pendingClickToggle_) {
+                KillTimer(hwndMessage_, TIMER_ID_TRAY_CLICK);
+                pendingClickToggle_ = false;
+            }
             // Drop any leftover IDC_APPSTARTING before the menu takes capture —
             // the popup window belongs to this thread, so our cursor applies
             SetCursor(LoadCursor(nullptr, IDC_ARROW));
@@ -675,18 +694,21 @@ bool TrayIcon::ProcessMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 ignoreNextLButtonUp_ = false;
                 return true;
             }
-            // Toggle immediately (no delay)
-            toggledByClick_ = true;
-            if (menuCallback_) {
-                menuCallback_(TrayMenuId::ToggleMode);
+            // Defer toggle slightly to see if a double-click follows (GetDoubleClickTime).
+            // This avoids toggling immediately and undoing, eliminating the async race
+            // condition that flipped mode to English when opening Settings (issue #266).
+            pendingClickToggle_ = true;
+            if (!SetTimer(hwndMessage_, TIMER_ID_TRAY_CLICK, GetDoubleClickTime(), nullptr)) {
+                pendingClickToggle_ = false;
+                if (menuCallback_) menuCallback_(TrayMenuId::ToggleMode);
             }
             return true;
         case WM_LBUTTONDBLCLK:
-            // Undo the toggle from the first click, then open settings
-            if (toggledByClick_ && menuCallback_) {
-                menuCallback_(TrayMenuId::ToggleMode);  // Undo
+            // Cancel pending single-click toggle
+            if (pendingClickToggle_) {
+                KillTimer(hwndMessage_, TIMER_ID_TRAY_CLICK);
+                pendingClickToggle_ = false;
             }
-            toggledByClick_ = false;
             ignoreNextLButtonUp_ = true;  // Suppress trailing WM_LBUTTONUP
             if (menuCallback_) {
                 menuCallback_(TrayMenuId::Settings);
@@ -705,7 +727,10 @@ bool TrayIcon::ProcessMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     }
 
     // Any other event (e.g., focus change, other buttons) clears the toggle tracking
-    toggledByClick_ = false;
+    if (pendingClickToggle_) {
+        KillTimer(hwndMessage_, TIMER_ID_TRAY_CLICK);
+        pendingClickToggle_ = false;
+    }
     ignoreNextLButtonUp_ = false;
     return false;
 } catch (const std::exception& e) {

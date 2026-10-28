@@ -59,7 +59,7 @@ body {
 .app-title {
     font-size: 28px;
     font-weight: 700;
-    color: var(--color-primary);
+    color: var(--text-primary);
     margin: 0 0 4px 0;
 }
 

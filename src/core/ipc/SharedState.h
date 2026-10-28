@@ -64,6 +64,8 @@ namespace FeatureFlags {
     constexpr uint32_t DEBUG_LOG_ENABLED     = 0x00040000;  // Settings → System → "Bật debug log"
     constexpr uint32_t SUGGEST_KEEP_CHARS    = 0x00080000;  // Settings → Bảng gõ → "BS giữ chữ khi có gợi ý"
     constexpr uint32_t HIDE_PREEDIT_UNDERLINE = 0x00100000; // Settings → Bảng gõ → TSF preedit styling
+    constexpr uint32_t MACRO_TITLE_CASE      = 0x00200000;
+    constexpr uint32_t MACRO_UNDO_ON_BACKSPACE = 0x00400000; // Settings → Gõ tắt → Undo macro on Backspace
     // NOTE: the "show toast" setting is intentionally NOT a feature flag — it is a
     // UI-only (EXE-side) cosmetic option read from TOML by the Settings/sub-dialogs
     // and never consumed by the hook/DLL/engine. Keeping it out of the cross-process
@@ -468,10 +470,12 @@ static_assert((offsetof(SharedState, reserved)
     if (config.smartSwitch)         flags |= FeatureFlags::SMART_SWITCH;
     if (config.excludeApps)         flags |= FeatureFlags::EXCLUDE_APPS;
     if (config.autoCapsMacro)       flags |= FeatureFlags::AUTO_CAPS_MACRO;
+    if (config.macroTitleCase)      flags |= FeatureFlags::MACRO_TITLE_CASE;
     if (config.allowEnglishBypass)  flags |= FeatureFlags::ALLOW_ENGLISH_BYPASS;
     if (config.debugLogEnabled)     flags |= FeatureFlags::DEBUG_LOG_ENABLED;
     if (config.suggestKeepChars)    flags |= FeatureFlags::SUGGEST_KEEP_CHARS;
     if (config.hidePreeditUnderline) flags |= FeatureFlags::HIDE_PREEDIT_UNDERLINE;
+    if (config.macroUndoOnBackspace) flags |= FeatureFlags::MACRO_UNDO_ON_BACKSPACE;
     return flags;
 }
 
@@ -492,10 +496,12 @@ inline void DecodeFeatureFlags(uint32_t flags, TypingConfig& config) noexcept {
     config.smartSwitch         = (flags & FeatureFlags::SMART_SWITCH) != 0;
     config.excludeApps         = (flags & FeatureFlags::EXCLUDE_APPS) != 0;
     config.autoCapsMacro       = (flags & FeatureFlags::AUTO_CAPS_MACRO) != 0;
+    config.macroTitleCase      = (flags & FeatureFlags::MACRO_TITLE_CASE) != 0;
     config.allowEnglishBypass  = (flags & FeatureFlags::ALLOW_ENGLISH_BYPASS) != 0;
     config.debugLogEnabled     = (flags & FeatureFlags::DEBUG_LOG_ENABLED) != 0;
     config.suggestKeepChars    = (flags & FeatureFlags::SUGGEST_KEEP_CHARS) != 0;
     config.hidePreeditUnderline = (flags & FeatureFlags::HIDE_PREEDIT_UNDERLINE) != 0;
+    config.macroUndoOnBackspace = (flags & FeatureFlags::MACRO_UNDO_ON_BACKSPACE) != 0;
 }
 
 }  // namespace NextKey

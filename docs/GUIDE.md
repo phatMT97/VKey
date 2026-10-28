@@ -175,10 +175,9 @@ VKey tích hợp sâu công nghệ TSF của Windows mang lại độ tương th
 ### <span id="macro">🚀 12. Gõ tắt (Macro)</span>
 - 💬 Hỗ trợ lưu trữ các đoạn gõ tắt dài tới **20.000 ký tự**, hỗ trợ xuống dòng thoải mái.
 - 🎯 Linh hoạt tùy chọn các phím để kích hoạt (trigger) gõ tắt như: phím Cách (`Space`), `Enter`, `Tab` hoặc các phím điều hướng.
-- 🔠 **Tự động viết hoa thông minh theo phím tắt:** Khi bạn bật chế độ tự động viết hoa (Auto Capitalization), bộ gõ sẽ tự động điều chỉnh kiểu viết hoa của cụm từ mở rộng dựa theo phím tắt bạn gõ trên bàn phím (áp dụng cho các từ gõ tắt được thiết lập viết thường trong bảng cấu hình):
-  - **Gõ chữ thường** (Ví dụ: `lhq`): Xuất ra toàn bộ chữ thường theo cấu hình (`liên hiệp quốc`).
-  - **Viết hoa chữ cái đầu** (Ví dụ: `Lhq`): Tự động viết hoa chữ cái đầu tiên của từng từ trong cụm từ mở rộng (`Liên Hiệp Quốc`).
-  - **Viết hoa toàn bộ** (Ví dụ: `LHQ`): Tự động viết hoa toàn bộ cụm từ mở rộng (`LIÊN HIỆP QUỐC`).
+- 🔠 **Tự động viết hoa theo phím tắt:** Với `bbh = bún bò Huế`, gõ `bbh` giữ nguyên nội dung, `Bbh` ra `Bún bò Huế`, `BBH` ra `BÚN BÒ HUẾ`. Bật thêm **Viết hoa đầu từng từ** nếu muốn `Bbh` ra `Bún Bò Huế`. Chữ hoa do tùy chọn viết hoa đầu câu tự tạo chỉ nâng đầu cụm. Xem [quy tắc gõ tắt và viết hoa](MACRO_CASING.md).
+- ↩️ **Khôi phục từ gõ tắt khi nhấn Backspace:** Ngay sau khi bung nội dung đầy đủ (ví dụ `bbh` + Space ra `bún bò Huế `), nếu bạn nhấn Backspace thì VKey sẽ xoá toàn bộ cụm từ đã bung và khôi phục lại từ gõ tắt ban đầu (`bbh`) thay vì phải xoá lùi từng chữ. Bật/tắt trong tab **Gõ tắt** (mặc định tắt).
+  - Nhấn trong vòng 4 giây, trước khi gõ phím khác hoặc đổi vị trí nhập. Undo chỉ được giữ với trigger chèn chữ như Space/dấu câu, không áp dụng sau Enter/Tab/phím điều hướng. Với Hook, undo hỗ trợ macro Unicode một dòng gửi trực tiếp; macro gửi qua clipboard, bảng mã cũ hoặc ký tự tổ hợp/emoji vẫn dùng Backspace thông thường.
 
 ### <span id="watchdog">🔁 13. Tự khởi động lại (Watchdog)</span>
 - *Mặc định: Tắt.*

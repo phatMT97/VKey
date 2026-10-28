@@ -166,7 +166,6 @@ void HookEngine::ApplyConfig(const TypingConfig& config) {
     autoCaps_.store(config.autoCaps, std::memory_order_release);
     macroEnabled_.store(config.macroEnabled, std::memory_order_release);
     macroInEnglish_.store(config.macroInEnglish, std::memory_order_release);
-    autoCapsMacro_.store(config.autoCapsMacro, std::memory_order_release);
     // Push the suggestKeepChars flag to the live injector so ShouldEmitBait
     // sees the latest user choice without needing a focus change to swap
     // injectors. Focus-change paths re-apply this from the config snapshot.
@@ -516,7 +515,7 @@ void HookEngine::SetCodeTable(CodeTable ct) {
     std::lock_guard<std::mutex> _lock(stateMutex_);
     // Commit any pending composition before switching
     if (ct != currentCodeTable_.load(std::memory_order_acquire) && engine_->Count() > 0) {
-        CommitComposition();
+        CommitComposition(true);
     }
 
     currentCodeTable_.store(ct, std::memory_order_release);
@@ -1225,6 +1224,15 @@ static bool IsIncompatibleLayout(HKL hkl);
 bool HookEngine::ProcessKeyDown(DWORD vkCode, DWORD /*scanCode*/, DWORD /*flags*/,
                                  bool preDrainShift, bool preDrainCapsLock, bool preDrainCtrl,
                                  bool preDrainAlt, bool preDrainWin) {
+    // Invalidate before pipeline features or routing guards can return early.
+    if (macroUndoState_.active) {
+        const auto macroCfg = config_.load(std::memory_order_acquire);
+        if (vkCode != VK_BACK || preDrainCtrl || preDrainAlt || preDrainWin
+            || !macroCfg || !macroCfg->macroEnabled || !macroCfg->macroUndoOnBackspace
+            || GetTickCount() - macroUndoState_.timestamp > kMacroUndoTimeoutMs) {
+            ClearMacroUndo();
+        }
+    }
     // Replay-context boundary (Enter / Tab) — the ONE choke point enforcing
     // "a commit-undo replay window must never survive leaving the editing
     // context". Runs before every guard, independent of engine emptiness, of
@@ -1294,6 +1302,7 @@ bool HookEngine::ProcessKeyDown(DWORD vkCode, DWORD /*scanCode*/, DWORD /*flags*
     const bool macroEng = macroInEnglish_.load(std::memory_order_acquire);
     if (!vnMode &&
         commitState_.IsIdle() &&
+        !macroUndoState_.active &&
         !(macroOn && macroEng)) {
         return false;
     }
@@ -1875,7 +1884,7 @@ HookEngine::KeyOutcome HookEngine::HandlePreDispatch(DWORD vkCode, bool vnMode,
     if (!IsModifierKey(CanonicalModifierVk(vkCode))
         && hotkeysSnap->Matches(Intent::ToggleEnabled, vkCode, currentMods,
                                  /*isDoubleTap=*/false, /*keyUp=*/false)) {
-        if (engine_->Count() > 0) CommitComposition();
+        if (engine_->Count() > 0) CommitComposition(true);
         tempEngineOff_ = !tempEngineOff_;
         CancelCommitUndo();
         HOOK_LOG(L"  TOGGLE-DOWN (vk=0x%02X mods=0x%02X): tempEngineOff_=%d",
@@ -2076,16 +2085,10 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
 
     // 7. Backspace → engine backspace if we have content
     if (vkCode == VK_BACK && engine_->Count() > 0) {
-        if (macroOn && !rawMacroBuffer_.empty()) rawMacroBuffer_.pop_back();
+        // HandleMacro already removed this key from rawMacroBuffer_.
         HOOK_LOG(L"  backspace (engine count=%zu)", engine_->Count());
         HandleBackspace();
         return KeyOutcome::Eat;  // Eat backspace
-    }
-
-    // 7b. Backspace with cross-commit macro buffer: update tracking, pass through
-    if (vkCode == VK_BACK && macroCrossCommit_ && !rawMacroBuffer_.empty()) {
-        rawMacroBuffer_.pop_back();
-        if (rawMacroBuffer_.empty()) macroCrossCommit_ = false;
     }
 
     // 7c. Escape: modal interrupt / cancel. Finalize composition verbatim
@@ -2117,7 +2120,7 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
         // ClearWordState() inside CommitComposition() resets the auto-cap flag, so it
         // has to ride along with the buffer — otherwise a space/punctuation macro typed
         // at sentence start expands lowercase in the hook while TSF (which gates the
-        // reset on macroCrossCommit_) title-cases it.
+        // reset on macroCrossCommit_) capitalizes it.
         const bool savedAutoCapped = wasFirstCharAutoCapped_;
         // Phase 3c: macro presence + spaceMacroKeys come from the RCU
         // snapshot. Local shared_ptr keeps both alive through the branch.
@@ -2268,7 +2271,7 @@ bool HookEngine::ProcessKeyUp(DWORD vkCode, DWORD /*flags*/) {
 
         auto fireToggleEnabled = [&](const wchar_t* reason) {
             if (engine_->Count() > 0) {
-                CommitComposition();
+                CommitComposition(true);
             }
             tempEngineOff_ = !tempEngineOff_;
             // Clear commit-undo state on both enable and disable: modifier-only
@@ -2462,9 +2465,9 @@ bool HookEngine::HandleAlphaKey(DWORD vkCode, bool shift, bool capsLock) {
         // rawMacroBuffer_ keeps the physical case HandleMacro (PreEngine stage) already
         // appended, so keys like "nMa" still match their exact-case entry. Record the
         // auto-cap separately instead: MacroCase::Plan needs to know the first character
-        // is capitalized on screen (to title-case the expansion) without that leaking
+        // is capitalized on screen (to capitalize the expansion) without that leaking
         // into the lookup key. Mirrors TSF's EngineController::HandleKey.
-        if (autoCapped) {
+        if (autoCapped && rawMacroBuffer_.size() == 1) {
             wasFirstCharAutoCapped_ = true;
         }
     }
@@ -2709,6 +2712,7 @@ void HookEngine::ResetComposition() {
     SecureZeroMemory(rawMacroBuffer_.data(), rawMacroBuffer_.size() * sizeof(wchar_t));
     ClearWordState();
     CancelCommitUndo();
+    ClearMacroUndo();
     // Mouse click, Ctrl/Alt shortcut (step 5), exception handler — all funnel here.
     // Each is a "sentence-context broke" event, so drop any pending sentence arm.
     autoCapState_ = AutoCapState::Idle;
@@ -2732,10 +2736,18 @@ void HookEngine::ClearWordState() {
 void HookEngine::ClearMacroBuffer() noexcept {
     rawMacroBuffer_.clear();
     wasFirstCharAutoCapped_ = false;
+    macroCrossCommit_ = false;
 }
 
 void HookEngine::CancelCommitUndo() {
     commitState_.Cancel();
+}
+
+void HookEngine::ClearMacroUndo() noexcept {
+    macroUndoState_.active = false;
+    macroUndoState_.shortcut.clear();
+    macroUndoState_.expansionLength = 0;
+    macroUndoState_.hasTrailingTrigger = false;
 }
 
 void HookEngine::SetCommitUndoReady() {
@@ -3573,6 +3585,40 @@ NextKey::Pipeline::MacroOutcome HookEngine::HandleMacro(
     auto hotkeysSnap = hotkeys_.load(std::memory_order_acquire);
     const uint32_t currentMods = ComputeModMask(ctrl, shift, alt, win);
 
+    // Check for macro undo on Backspace (issue #264)
+    if (macroUndoState_.active) {
+        DWORD now = GetTickCount();
+        if (vk == VK_BACK && !ctrl && !alt && !win && (now - macroUndoState_.timestamp <= kMacroUndoTimeoutMs)) {
+            size_t pendingBs = macroUndoState_.expansionLength +
+                                (macroUndoState_.hasTrailingTrigger ? 1 : 0);
+            std::wstring shortcut = std::move(macroUndoState_.shortcut);
+            ClearMacroUndo();
+
+            while (pendingBs > 0) {
+                const auto count = (std::min)(pendingBs, size_t{60});
+                if (!dispatcher_.ReplaceRaw(count, std::wstring_view{})) {
+                    ResetComposition();
+                    return NextKey::Pipeline::MacroOutcome::Eat;
+                }
+                pendingBs -= count;
+            }
+            for (size_t offset = 0; offset < shortcut.size(); offset += 60) {
+                if (!dispatcher_.ReplaceRaw(0, std::wstring_view(shortcut).substr(offset, 60))) {
+                    ResetComposition();
+                    return NextKey::Pipeline::MacroOutcome::Eat;
+                }
+            }
+
+            rawMacroBuffer_ = shortcut;
+            macroCrossCommit_ = true;
+            tempMacroOff_ = true;
+            HOOK_LOG(L"  macro-undo: reverted expansion to shortcut '%ls'", shortcut.c_str());
+            return NextKey::Pipeline::MacroOutcome::Eat;
+        } else if (vk != VK_BACK) {
+            ClearMacroUndo();
+        }
+    }
+
     // EN mode: only engages when macroOn && macroEng. Always returns Pass
     // (caller passes the key to OS as English) — except macro-expand which
     // can return Eat.
@@ -3615,6 +3661,7 @@ NextKey::Pipeline::MacroOutcome HookEngine::HandleMacro(
             }
         } else if (vk == VK_BACK && !rawMacroBuffer_.empty()) {
             rawMacroBuffer_.pop_back();
+            if (rawMacroBuffer_.empty()) ClearMacroBuffer();
         } else if (!(vk >= 0x41 && vk <= 0x5A) && !IsCommitTrigger(vk)) {
             ClearMacroBuffer();
             tempMacroOff_ = false;
@@ -3668,6 +3715,7 @@ NextKey::Pipeline::MacroOutcome HookEngine::HandleMacro(
     if (macroOn && hasMacros) {
         if (vk == VK_BACK && !rawMacroBuffer_.empty()) {
             rawMacroBuffer_.pop_back();
+            if (rawMacroBuffer_.empty()) ClearMacroBuffer();
         } else if (IsCommitTrigger(vk)) {
             // If the trigger was disabled, or if it was enabled but did not result in expansion,
             // we clear the buffer unless it's a Space character that matches a multi-word macro
@@ -3988,6 +4036,7 @@ bool HookEngine::IsMacroTrigger(DWORD vkCode) const {
 
 HookEngine::MacroResult HookEngine::TryExpandMacro(wchar_t triggerChar) {
     Win32CaseMapper mapper;
+    const auto typingConfig = config_.load(std::memory_order_acquire);
     // Phase 3c: macro table comes from the RCU snapshot. The shared_ptr
     // local keeps the table alive for the duration of Macro::Plan even
     // if a worker thread republishes mid-call.
@@ -3999,7 +4048,8 @@ HookEngine::MacroResult HookEngine::TryExpandMacro(wchar_t triggerChar) {
         .macroTable            = snap->macroTable,
         .macroCrossCommit      = macroCrossCommit_,
         .currentCodeTable      = currentCodeTable_.load(std::memory_order_acquire),
-        .autoCapsEnabled       = autoCapsMacro_.load(std::memory_order_acquire),
+        .autoCapsEnabled       = typingConfig->autoCapsMacro,
+        .titleCaseEnabled      = typingConfig->macroTitleCase,
         .wasFirstCharAutoCapped = wasFirstCharAutoCapped_,
         .triggerChar           = triggerChar,
         .clipboardThreshold    = kMacroClipboardThreshold,
@@ -4009,12 +4059,15 @@ HookEngine::MacroResult HookEngine::TryExpandMacro(wchar_t triggerChar) {
 
     auto inj = dispatcher_.GetInjector();
 
+    std::size_t expansionLength = 0;
+    bool expansionDelivered = true;
     if (plan.useClipboard) {
         if (plan.bsCount > 0) {
             (void)dispatcher_.ReplaceRaw(plan.bsCount, std::wstring_view{});
         }
         auto clipText = Macro::ExpandEscapesForClipboard(plan.expansion);
         dispatcher_.ClipboardPasteText(clipText);
+        expansionLength = clipText.size();
         HOOK_LOG(L"  TryExpandMacro: clipboard paste %zu chars (raw %zu)",
                  clipText.size(), plan.expansion.size());
     } else {
@@ -4022,22 +4075,38 @@ HookEngine::MacroResult HookEngine::TryExpandMacro(wchar_t triggerChar) {
         for (const auto& s : Macro::BuildSegments(plan.expansion, currentCodeTable_.load(std::memory_order_acquire))) {
             if (s.isReturn) {
                 if (pendingBs > 0) {
-                    (void)dispatcher_.ReplaceRaw(pendingBs, std::wstring_view{});
+                    expansionDelivered = dispatcher_.ReplaceRaw(pendingBs, std::wstring_view{}) && expansionDelivered;
                     pendingBs = 0;
                 }
                 dispatcher_.InjectKey(VK_RETURN);
+                expansionLength += 1;
             } else if (!s.text.empty()) {
-                (void)dispatcher_.ReplaceRaw(pendingBs, std::wstring_view(s.text));
+                expansionDelivered = dispatcher_.ReplaceRaw(pendingBs, std::wstring_view(s.text)) && expansionDelivered;
                 pendingBs = 0;
+                expansionLength += s.text.size();
             }
         }
         if (pendingBs > 0) {
-            (void)dispatcher_.ReplaceRaw(pendingBs, std::wstring_view{});
+            expansionDelivered = dispatcher_.ReplaceRaw(pendingBs, std::wstring_view{}) && expansionDelivered;
         }
     }
 
     ClearWordState();
     CancelCommitUndo();
+
+    auto cfg = config_.load(std::memory_order_acquire);
+    if (cfg && cfg->macroUndoOnBackspace && expansionDelivered && !plan.shortcut.empty()
+        && triggerChar >= L' ' && !plan.useClipboard
+        && currentCodeTable_.load(std::memory_order_acquire) == CodeTable::Unicode
+        && Macro::CanUndoWithBackspaces(plan.expansion)) {
+        macroUndoState_.shortcut = std::move(plan.shortcut);
+        macroUndoState_.expansionLength = expansionLength;
+        macroUndoState_.hasTrailingTrigger = !plan.isPartOfMacro;
+        macroUndoState_.timestamp = GetTickCount();
+        macroUndoState_.active = true;
+    } else {
+        ClearMacroUndo();
+    }
     return plan.isPartOfMacro ? MacroResult::ExpandedEatTrigger
                               : MacroResult::ExpandedPassTrigger;
 }
@@ -4775,7 +4844,7 @@ void HookEngine::ApplyToggleVNOnHookThread() {
 
     // Commit pending composition (skip if CJK-suppressed — engine inactive).
     if (!focus_.LayoutSuppressed() && engine_->Count() > 0) {
-        CommitComposition();
+        CommitComposition(true);
     }
     CancelCommitUndo();
     digitLedWord_ = false;
@@ -4977,7 +5046,7 @@ void HookEngine::RefreshBrowserRouteOnHookThread(bool forceRead, bool notifyCall
         && vietnameseMode_.load(std::memory_order_acquire) != (modeTarget != 0);
     if (!routeChanged && !modeChanged) return;
 
-    if (engine_ && engine_->Count() > 0) CommitComposition();
+    if (engine_ && engine_->Count() > 0) CommitComposition(true);
     if (modeChanged) {
         vietnameseMode_.store(modeTarget != 0, std::memory_order_release);
     }

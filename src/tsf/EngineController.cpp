@@ -370,6 +370,7 @@ bool EngineController::WantKey(UINT vkCode, bool /*isKeyDown*/) {
 
     // 4. We handle Backspace ONLY if we have internal content.
     if (vkCode == VK_BACK) {
+        if (HasMacroUndo()) return true;
         return engineHasComp;
     }
 
@@ -492,6 +493,9 @@ bool EngineController::PushEngineKey(ITfContext* pContext, wchar_t ch, bool uppe
 bool EngineController::HandleKey(ITfContext* pContext, UINT vkCode) {
     // 1. Handle Backspace (only if we have content, as decided by WantKey)
     if (vkCode == VK_BACK) {
+        if (HasMacroUndo()) {
+            return UndoMacro(pContext);
+        }
         // Revive path: engine was pre-seeded in OnTestKeyDown via
         // PrepareBackspaceRevive (and passed the English-word gate). Wire up
         // composition covering the cached range, then apply backspace.
@@ -590,9 +594,11 @@ bool EngineController::HandleKey(ITfContext* pContext, UINT vkCode) {
 
             // Auto-cap if revive didn't happen
             if (activeConfig_.autoCaps && shouldAutoCap) {
+                if (rawMacroBuffer_.empty() && !upper) {
+                    wasFirstCharAutoCapped_ = true;
+                }
                 upper = true;
                 if (!isBracket) ch = towupper(ch);
-                wasFirstCharAutoCapped_ = true;
                 TSF_LOG(L"HandleKey: auto-cap → '%lc'", ch);
             }
             TrackMacroCharacter(rawCh);
@@ -806,6 +812,8 @@ bool EngineController::HasMacroCandidate() const noexcept {
 }
 
 void EngineController::ClearMacroTracking() noexcept {
+    ResetMacroUndo();
+    tempMacroOff_ = false;
     rawMacroBuffer_.clear();
     wasFirstCharAutoCapped_ = false;
     macroCrossCommit_ = false;
@@ -826,17 +834,18 @@ void EngineController::TrackMacroBackspace() noexcept {
     if (!IsMacroTrackingEnabled() || rawMacroBuffer_.empty()) return;
 
     rawMacroBuffer_.pop_back();
-    if (rawMacroBuffer_.empty()) macroCrossCommit_ = false;
+    if (rawMacroBuffer_.empty()) ClearMacroTracking();
 }
 
 bool EngineController::ReplacePrecedingText(ITfContext* pContext,
                                              std::size_t characterCount,
-                                             const std::wstring& replacement) {
+                                             const std::wstring& replacement,
+                                             const std::wstring& expected) {
     if (pContext == nullptr || characterCount == 0) return false;
 
     bool replaced = false;
     auto* pSession = new ReplacePrecedingTextEditSession(
-        pContext, characterCount, replacement, &replaced);
+        pContext, characterCount, replacement, &replaced, expected);
     HRESULT hrSession = S_OK;
     HRESULT hr = pContext->RequestEditSession(
         clientId_, pSession, TF_ES_SYNC | TF_ES_READWRITE, &hrSession);
@@ -886,7 +895,7 @@ std::optional<Macro::ContextMatch> EngineController::LookupMacroInContext(
     const TsfCaseMapper caseMapper;
     return Macro::MatchInPrecedingText(text, triggerChar, macroTable_, maxMacroKeyLen_,
                                        activeConfig_.autoCapsMacro, kMacroClipboardThreshold,
-                                       caseMapper);
+                                       caseMapper, activeConfig_.macroTitleCase);
 }
 
 Macro::MacroPlan EngineController::EvaluateMacroPlan(const std::wstring& rawBuffer,
@@ -905,6 +914,7 @@ Macro::MacroPlan EngineController::EvaluateMacroPlan(const std::wstring& rawBuff
         // TSF writes Unicode through ITfRange, so match document character counts.
         .currentCodeTable = CodeTable::Unicode,
         .autoCapsEnabled = activeConfig_.autoCapsMacro,
+        .titleCaseEnabled = activeConfig_.macroTitleCase,
         .wasFirstCharAutoCapped = wasFirstCharAutoCapped_,
         .triggerChar = triggerChar,
         .clipboardThreshold = kMacroClipboardThreshold,
@@ -915,6 +925,7 @@ Macro::MacroPlan EngineController::EvaluateMacroPlan(const std::wstring& rawBuff
 bool EngineController::WouldExpandMacroTrigger(ITfContext* pContext,
                                                 UINT vkCode,
                                                 wchar_t triggerChar) const {
+    if (tempMacroOff_) return false;
     if (!Macro::IsCommitTrigger(vkCode) || !IsMacroTrackingEnabled()) return false;
     if (!Macro::ShouldTrigger(vkCode, activeConfig_.macroTriggerSpace, activeConfig_.macroTriggerEnter,
                               activeConfig_.macroTriggerTab, activeConfig_.macroTriggerDir)) {
@@ -934,6 +945,10 @@ bool EngineController::WouldExpandMacroTrigger(ITfContext* pContext,
 EngineController::MacroResult EngineController::HandleMacroTrigger(
     ITfContext* pContext, UINT vkCode, wchar_t triggerChar) {
     if (!Macro::IsCommitTrigger(vkCode)) return MacroResult::NoMatch;
+    if (tempMacroOff_) {
+        ClearMacroTracking();
+        return MacroResult::NoMatch;
+    }
     if (!IsMacroTrackingEnabled()) {
         ClearMacroTracking();
         return MacroResult::NoMatch;
@@ -1040,9 +1055,39 @@ EngineController::MacroResult EngineController::HandleMacroTrigger(
     digitLedWord_ = false;
     ClearMacroTracking();
     ResetCommitUndo();
+
+    if (activeConfig_.macroUndoOnBackspace && !plan.shortcut.empty()
+        && (vkCode == VK_SPACE || triggerChar > L' ')) {
+        macroUndoState_.shortcut = std::move(plan.shortcut);
+        macroUndoState_.expansion = replacement;
+        macroUndoState_.expansionLength = replacement.size();
+        macroUndoState_.timestamp = GetTickCount();
+        macroUndoState_.active = true;
+    } else {
+        ResetMacroUndo();
+    }
+
     TSF_LOG(L"HandleMacroTrigger: expanded macro");
     return eatTrigger ? MacroResult::ExpandedEatTrigger
                       : MacroResult::ExpandedPassTrigger;
+}
+
+bool EngineController::UndoMacro(ITfContext* pContext) {
+    if (!HasMacroUndo()) return false;
+    const std::size_t bsCount = macroUndoState_.expansionLength;
+    std::wstring shortcut = std::move(macroUndoState_.shortcut);
+    const std::wstring expansion = std::move(macroUndoState_.expansion);
+    ResetMacroUndo();
+
+    if (!ReplacePrecedingText(pContext, bsCount, shortcut, expansion)) {
+        TSF_LOG(L"UndoMacro: ReplacePrecedingText failed");
+        return false;
+    }
+    rawMacroBuffer_ = shortcut;
+    macroCrossCommit_ = true;
+    tempMacroOff_ = true;
+    TSF_LOG(L"UndoMacro: restored shortcut '%ls'", shortcut.c_str());
+    return true;
 }
 
 void EngineController::DetectScintillaApp() {
@@ -1680,6 +1725,7 @@ void EngineController::ResetCommitUndo() noexcept {
 
 void EngineController::OnNonRestoreKey() noexcept {
     if (commitUndoState_ != CommitUndoState::Idle) ResetCommitUndo();
+    ResetMacroUndo();
 }
 
 bool EngineController::TryRestoreLastCommitRaw(ITfContext* pContext) {

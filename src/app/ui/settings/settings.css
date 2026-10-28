@@ -37,7 +37,7 @@
 .title-text {
     font-size: 16px;
     font-weight: 700;
-    color: var(--color-primary);
+    color: var(--text-primary);
     letter-spacing: 0.5px;
     line-height: 36px;
 }
@@ -683,7 +683,7 @@
 .app-name {
     font-size: 28px;
     font-weight: 700;
-    color: var(--color-primary);
+    color: var(--text-primary);
     margin-bottom: 4px;
 }
 

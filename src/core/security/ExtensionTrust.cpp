@@ -135,7 +135,7 @@ ExtensionTrustResult VerifyExtensionBinary(
         // 4. Foundation signs Classic's watchdog and TSF DLL after the app
         // build, changing their hashes. Their signed version resources must
         // match the running Classic version.
-        LONG status = TRUST_E_NOSIGNATURE;
+        [[maybe_unused]] LONG status = TRUST_E_NOSIGNATURE;
 #ifdef VKEY_LITE_MODE
         if ((binary == ExtensionBinary::Watchdog || binary == ExtensionBinary::TsfDll)
             && HasCurrentVersion(filePath)) {

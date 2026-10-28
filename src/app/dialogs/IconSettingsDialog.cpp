@@ -29,7 +29,7 @@ SubDialogConfig MakeIconSettingsConfig(HWND parent) {
         L"this://app/iconsettings/iconsettings.html",
         L"VKey - Tùy chỉnh icon",
         430, custom ? kCustomColorsHeight : kBaseHeight,
-        parent, true, 36, 40, true
+        parent, false, 36, 40, true
     };
 }
 

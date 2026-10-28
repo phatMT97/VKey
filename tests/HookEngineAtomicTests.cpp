@@ -12,7 +12,8 @@
 //   - 11 per-app + config bools (D5.2): isExcludedApp_, isConsoleApp_,
 //     isElectronApp_, skipEmptyChar_, needBaitChar_, useClipboardPaste_,
 //     useEditMsgPath_, isOutlookApp_, macroEnabled_, macroInEnglish_,
-//     autoCaps_, autoCapsMacro_ (v3 cleanup dropped tempOffMacroByEsc_,
+//     autoCaps_ (macro casing reads the immutable TypingConfig snapshot;
+//     v3 cleanup dropped tempOffMacroByEsc_,
 //     tempOffMethod_, escRestoreRawEnabled_ — now in HotkeyRegistry)
 //   - excludedPid_      — std::atomic<DWORD>    (D5.2, 32-bit PID)
 //

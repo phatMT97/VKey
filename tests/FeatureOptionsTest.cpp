@@ -185,6 +185,57 @@ TEST(SettingMetadata, HidePreeditUnderlineIsAChildOfTsfApps) {
     EXPECT_STREQ(setting->parentId, L"tsf-apps");
 }
 
+TEST_F(FeatureFlagsTest, MacroUndoOnBackspaceRoundTripsIndependently) {
+    TypingConfig config;
+    EXPECT_FALSE(config.macroUndoOnBackspace);
+    for (bool undoOnBs : {false, true}) {
+        config.macroUndoOnBackspace = undoOnBs;
+        SharedState state{};
+        state.InitDefaults();
+        state.SetFeatureFlags(EncodeFeatureFlags(config));
+        TypingConfig decoded;
+        DecodeFeatureFlags(state.GetFeatureFlags(), decoded);
+        EXPECT_EQ(decoded.macroUndoOnBackspace, undoOnBs);
+    }
+}
+
+TEST(SettingMetadata, MacroUndoOnBackspaceMetadata) {
+    const SettingMeta* setting = FindSetting(L"macro-undo-backspace");
+    ASSERT_NE(setting, nullptr);
+    EXPECT_EQ(setting->win32Id, 2223);
+    EXPECT_EQ(setting->tab, 1);
+    EXPECT_EQ(setting->column, 0);
+}
+
+TEST_F(FeatureFlagsTest, MacroTitleCaseRoundTripsIndependentlyOfAutoCaps) {
+    TypingConfig config;
+    EXPECT_FALSE(config.macroTitleCase);
+    for (bool macroCaps : {false, true}) {
+        for (bool sentenceCaps : {false, true}) {
+            for (bool titleCase : {false, true}) {
+                config.autoCapsMacro = macroCaps;
+                config.autoCaps = sentenceCaps;
+                config.macroTitleCase = titleCase;
+                SharedState state{};
+                state.InitDefaults();
+                state.SetFeatureFlags(EncodeFeatureFlags(config));
+                TypingConfig decoded;
+                DecodeFeatureFlags(state.GetFeatureFlags(), decoded);
+                EXPECT_EQ(decoded.macroTitleCase, titleCase);
+                EXPECT_EQ(decoded.autoCapsMacro, macroCaps);
+                EXPECT_EQ(decoded.autoCaps, sentenceCaps);
+            }
+        }
+    }
+}
+
+TEST(SettingMetadata, MacroTitleCaseIsAChildOfMacroAutoCaps) {
+    const SettingMeta* setting = FindSetting(L"macro-title-case");
+    ASSERT_NE(setting, nullptr);
+    ASSERT_NE(setting->parentId, nullptr);
+    EXPECT_STREQ(setting->parentId, L"auto-caps-macro");
+}
+
 // ============================================================================
 // ConfigManager Round-Trip Tests (Windows only — needs Windows.h)
 // ============================================================================

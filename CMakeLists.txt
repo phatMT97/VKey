@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(VKey VERSION 4.3.2 LANGUAGES CXX)
+project(VKey VERSION 4.4.0 LANGUAGES CXX)
 
 # Generate Version.h from Version.h.in — version is defined once in project() above.
 configure_file(

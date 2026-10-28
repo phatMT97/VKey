@@ -120,9 +120,10 @@ private:
 class ReplacePrecedingTextEditSession : public EditSession {
 public:
     ReplacePrecedingTextEditSession(ITfContext* pContext, std::size_t characterCount,
-                                    const std::wstring& replacement, bool* replaced)
+                                    const std::wstring& replacement, bool* replaced,
+                                    const std::wstring& expected = {})
         : EditSession(pContext), characterCount_(characterCount), replacement_(replacement),
-          replaced_(replaced) {}
+          replaced_(replaced), expected_(expected) {}
 
     IFACEMETHODIMP DoEditSession(TfEditCookie ec) override {
         if (replaced_) *replaced_ = false;
@@ -142,6 +143,15 @@ public:
         LONG shifted = 0;
         hr = range->ShiftStart(ec, -static_cast<LONG>(characterCount_), &shifted, &halt);
         if (FAILED(hr) || shifted != -static_cast<LONG>(characterCount_)) return E_FAIL;
+
+        // Undo may follow a mouse/caret move without a focus notification.
+        // Verify the exact expansion under the same edit lock before replacing.
+        if (!expected_.empty()) {
+            std::wstring actual(expected_.size(), L'\0');
+            ULONG read = 0;
+            hr = range->GetText(ec, 0, actual.data(), static_cast<ULONG>(actual.size()), &read);
+            if (FAILED(hr) || read != expected_.size() || actual != expected_) return E_FAIL;
+        }
 
         hr = range->SetText(ec, 0, replacement_.c_str(), static_cast<LONG>(replacement_.size()));
         if (SUCCEEDED(hr)) {
@@ -163,6 +173,7 @@ private:
     std::size_t characterCount_;
     std::wstring replacement_;
     bool* replaced_;
+    std::wstring expected_;
 };
 
 /// Read-only edit session: fetch up to N chars preceding the caret.

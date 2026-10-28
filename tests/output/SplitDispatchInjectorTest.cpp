@@ -167,6 +167,55 @@ TEST_F(SplitDispatchInjectorTest, BothShiftKeysRetainTheirIdentity) {
     EXPECT_EQ(capturedInputs[5].ki.wVk, VK_RSHIFT);
 }
 
+TEST_F(SplitDispatchInjectorTest, HeldControlIsReleasedAroundBackspaceReplacement) {
+    // Issue #267: Ctrl held during Backspace turns synthetic Backspaces into
+    // Ctrl+Backspace shortcuts. SplitDispatchInjector must release held Ctrl in batch 1.
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_LCONTROL ? static_cast<SHORT>(-32768) : 0;
+    };
+
+    SplitDispatchInjector inj(/*sleepMsBetweenBatches=*/6);
+    EXPECT_TRUE(inj.Replace(1, L"a"));
+
+    // Batch 1: Ctrl-up, BS (down+up), Ctrl-down (4 events).
+    // Sleep (1 delay).
+    // Batch 2: Ctrl-up, 'a' (down+up), Ctrl-down (4 events).
+    ASSERT_EQ(capturedInputs.size(), 8u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_LCONTROL);
+    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[2].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[3].ki.wVk, VK_LCONTROL);
+    EXPECT_EQ(capturedInputs[3].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_EQ(capturedInputs[4].ki.wVk, VK_LCONTROL);
+    EXPECT_NE(capturedInputs[4].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_NE(capturedInputs[5].ki.dwFlags & KEYEVENTF_UNICODE, 0u);
+    EXPECT_EQ(capturedInputs[5].ki.wScan, L'a');
+    EXPECT_EQ(capturedInputs[7].ki.wVk, VK_LCONTROL);
+    EXPECT_EQ(capturedInputs[7].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    ASSERT_EQ(sleepDelays.size(), 1u);
+    EXPECT_EQ(sleepDelays[0], 6u);
+}
+
+TEST_F(SplitDispatchInjectorTest, HeldControlAndShiftAreBothReleased) {
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_LSHIFT || vk == VK_LCONTROL
+            ? static_cast<SHORT>(-32768)
+            : 0;
+    };
+
+    SplitDispatchInjector inj(/*sleepMsBetweenBatches=*/6);
+    EXPECT_TRUE(inj.Replace(1, L""));
+
+    ASSERT_EQ(capturedInputs.size(), 6u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_LSHIFT);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, VK_LCONTROL);
+    EXPECT_EQ(capturedInputs[2].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[3].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[4].ki.wVk, VK_LSHIFT);
+    EXPECT_EQ(capturedInputs[5].ki.wVk, VK_LCONTROL);
+}
+
 TEST_F(SplitDispatchInjectorTest, BaitCharSkippedWhenBsCountZero) {
     SplitDispatchInjector inj(6, /*needsBaitCharPrefix=*/true);
     EXPECT_TRUE(inj.Replace(0, L"y"));
@@ -270,6 +319,60 @@ TEST_F(SplitDispatchInjectorTest, LoneReinjectDoesNotBuyInterBatchSleep) {
     ASSERT_EQ(synthCounterDeltas.size(), 2u);
     EXPECT_EQ(synthCounterDeltas[0], 1);
     EXPECT_EQ(synthCounterDeltas[1], 2);
+}
+
+TEST_F(SplitDispatchInjectorTest, TextOnlyReleasesRightControlWithoutSleeping) {
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_RCONTROL ? static_cast<SHORT>(-32768) : 0;
+    };
+    SplitDispatchInjector inj(6);
+    ASSERT_TRUE(inj.Replace(0, L"x"));
+    ASSERT_EQ(capturedInputs.size(), 4u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_RCONTROL);
+    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_EXTENDEDKEY, 0u);
+    EXPECT_EQ(capturedInputs[3].ki.wVk, VK_RCONTROL);
+    EXPECT_EQ(capturedInputs[3].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_TRUE(sleepDelays.empty());
+}
+
+TEST_F(SplitDispatchInjectorTest, PartialCharacterBatchRestoresReleasedControl) {
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_RCONTROL ? static_cast<SHORT>(-32768) : 0;
+    };
+    static int calls;
+    calls = 0;
+    Internal::g_sendInput = [](UINT n, LPINPUT inputs, int) -> UINT {
+        capturedInputs.insert(capturedInputs.end(), inputs, inputs + n);
+        return ++calls == 2 ? 1u : n;
+    };
+    SplitDispatchInjector inj(6);
+    EXPECT_FALSE(inj.Replace(1, L"x"));
+    EXPECT_EQ(calls, 3);
+    ASSERT_EQ(capturedInputs.size(), 9u);
+    EXPECT_EQ(capturedInputs.back().ki.wVk, VK_RCONTROL);
+    EXPECT_EQ(capturedInputs.back().ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_NE(capturedInputs.back().ki.dwFlags & KEYEVENTF_EXTENDEDKEY, 0u);
+}
+
+TEST_F(SplitDispatchInjectorTest, OversizedTextDoesNotDeleteBeforeRejecting) {
+    SplitDispatchInjector inj(6);
+    EXPECT_FALSE(inj.Replace(1, std::wstring(129, L'x')));
+    EXPECT_TRUE(capturedInputs.empty());
+    EXPECT_TRUE(sleepDelays.empty());
+}
+
+TEST_F(SplitDispatchInjectorTest, ControlIsReleasedBeforeGameReinject) {
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_LCONTROL ? static_cast<SHORT>(-32768) : 0;
+    };
+    SplitDispatchInjector inj(6);
+    ASSERT_TRUE(inj.Replace(1, L"a", 'A'));
+    ASSERT_GE(capturedInputs.size(), 3u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_LCONTROL);
+    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, 'A');
+    EXPECT_EQ(capturedInputs[2].ki.wVk, VK_BACK);
 }
 
 }  // namespace NextKey::Output::Test

@@ -166,7 +166,7 @@ private:
     NOTIFYICONDATAW nid_ = {};
     bool vietnameseMode_ = true;
     bool tsfActive_ = false;             // Focused app is a TSF app → show colored "T"
-    bool toggledByClick_ = false;        // Single-click toggled — undo if double-click follows
+    bool pendingClickToggle_ = false;    // Waiting for double-click before executing single-click toggle
     bool ignoreNextLButtonUp_ = false;   // Suppress WM_LBUTTONUP after WM_LBUTTONDBLCLK
     MenuCallback menuCallback_;
     ModeRequestCallback modeRequestCallback_;

@@ -134,6 +134,89 @@ TEST_F(Win32SendInputInjectorTest, BothShiftKeysRetainTheirIdentity) {
     EXPECT_EQ(capturedInputs[5].ki.wVk, VK_RSHIFT);
 }
 
+TEST_F(Win32SendInputInjectorTest, HeldControlIsReleasedAroundBackspaceReplacement) {
+    // Issue #267: Ctrl held during Backspace turns synthetic Backspaces into
+    // Ctrl+Backspace shortcuts, deleting lines/words in Sublime, Notepad++, Word.
+    // The injector must release held Ctrl before sending Backspaces and restore it after.
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_LCONTROL ? static_cast<SHORT>(-32768) : 0;
+    };
+
+    Win32SendInputInjector inj(/*needsBaitCharPrefix=*/false);
+    EXPECT_TRUE(inj.Replace(1, L"a"));
+
+    // LControl-up, Backspace (down+up), 'a' (down+up), LControl-down.
+    ASSERT_EQ(capturedInputs.size(), 6u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_LCONTROL);
+    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[2].ki.wVk, VK_BACK);
+    EXPECT_NE(capturedInputs[3].ki.dwFlags & KEYEVENTF_UNICODE, 0u);
+    EXPECT_EQ(capturedInputs[3].ki.wScan, L'a');
+    EXPECT_EQ(capturedInputs[5].ki.wVk, VK_LCONTROL);
+    EXPECT_EQ(capturedInputs[5].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    for (const auto& input : capturedInputs) {
+        EXPECT_EQ(input.ki.dwExtraInfo, Internal::kVKeyExtraInfo);
+    }
+}
+
+TEST_F(Win32SendInputInjectorTest, BothControlKeysRetainTheirIdentity) {
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_LCONTROL || vk == VK_RCONTROL
+            ? static_cast<SHORT>(-32768)
+            : 0;
+    };
+
+    Win32SendInputInjector inj(/*needsBaitCharPrefix=*/false);
+    EXPECT_TRUE(inj.Replace(1, L""));
+
+    ASSERT_EQ(capturedInputs.size(), 6u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_LCONTROL);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, VK_RCONTROL);
+    EXPECT_EQ(capturedInputs[2].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[3].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[4].ki.wVk, VK_LCONTROL);
+    EXPECT_EQ(capturedInputs[5].ki.wVk, VK_RCONTROL);
+}
+
+TEST_F(Win32SendInputInjectorTest, HeldControlAndShiftAreBothReleased) {
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_LSHIFT || vk == VK_LCONTROL
+            ? static_cast<SHORT>(-32768)
+            : 0;
+    };
+
+    Win32SendInputInjector inj(/*needsBaitCharPrefix=*/false);
+    EXPECT_TRUE(inj.Replace(1, L""));
+
+    ASSERT_EQ(capturedInputs.size(), 6u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_LSHIFT);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, VK_LCONTROL);
+    EXPECT_EQ(capturedInputs[2].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[3].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[4].ki.wVk, VK_LSHIFT);
+    EXPECT_EQ(capturedInputs[5].ki.wVk, VK_LCONTROL);
+}
+
+TEST_F(Win32SendInputInjectorTest, HeldAltIsReleasedAroundBackspaceReplacement) {
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_LMENU ? static_cast<SHORT>(-32768) : 0;
+    };
+
+    Win32SendInputInjector inj(/*needsBaitCharPrefix=*/false);
+    EXPECT_TRUE(inj.Replace(1, L"a"));
+
+    ASSERT_EQ(capturedInputs.size(), 6u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_LMENU);
+    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[2].ki.wVk, VK_BACK);
+    EXPECT_NE(capturedInputs[3].ki.dwFlags & KEYEVENTF_UNICODE, 0u);
+    EXPECT_EQ(capturedInputs[3].ki.wScan, L'a');
+    EXPECT_EQ(capturedInputs[5].ki.wVk, VK_LMENU);
+    EXPECT_EQ(capturedInputs[5].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+}
+
 TEST_F(Win32SendInputInjectorTest, BaitCharSkippedWhenBsCountZero) {
     // Pure-typing (no deletions) on the Chromium variant: no bait,
     // no extra BS — just the chars. Autocomplete-dismiss isn't needed
@@ -256,21 +339,61 @@ TEST_F(Win32SendInputInjectorTest, ReinjectVkEmitsNoKeyUp) {
 }
 
 TEST_F(Win32SendInputInjectorTest, ReinjectVkKeepsHeldShiftRestoreIndexHonest) {
-    // Shift-releases sit AFTER the re-inject key-down. If the partial-send
-    // recovery still assumed they start at index 0 it would read "shift was
-    // released" from a send that only delivered the re-inject, and press a
-    // Shift that was never lifted — a stuck modifier.
+    // Only the modifier release landed; compensate even though the re-inject
+    // that follows it was not delivered.
     Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
         return vk == VK_LSHIFT ? static_cast<SHORT>(0x8000) : SHORT{0};
     };
-    sendInputReturnOverride = 1;  // only the re-inject key-down landed
+    sendInputReturnOverride = 1;
 
-    Win32SendInputInjector inj(/*needsBaitCharPrefix=*/false);
-    EXPECT_FALSE(inj.Replace(2, L"ô", /*reinjectVk=*/'O'));
+    Win32SendInputInjector inj(false);
+    EXPECT_FALSE(inj.Replace(2, L"ô", 'O'));
+    ASSERT_EQ(capturedInputs.size(), 10u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_LSHIFT);
+    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, 'O');
+    EXPECT_EQ(capturedInputs.back().ki.wVk, VK_LSHIFT);
+    EXPECT_EQ(capturedInputs.back().ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+}
 
-    // Batch: [reinject, LShift up, BS×4, char×2, LShift down] = 9 events.
-    // No compensating restore batch may follow, so nothing beyond those 9.
-    EXPECT_EQ(capturedInputs.size(), 9u);
+TEST_F(Win32SendInputInjectorTest, TextOnlyReleasesRightAltAndRestoresIt) {
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_RMENU ? static_cast<SHORT>(-32768) : 0;
+    };
+    Win32SendInputInjector inj(false);
+    ASSERT_TRUE(inj.Replace(0, L"x"));
+    ASSERT_EQ(capturedInputs.size(), 4u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_RMENU);
+    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_EXTENDEDKEY, 0u);
+    EXPECT_EQ(capturedInputs[3].ki.wVk, VK_RMENU);
+    EXPECT_EQ(capturedInputs[3].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_NE(capturedInputs[3].ki.dwFlags & KEYEVENTF_EXTENDEDKEY, 0u);
+}
+
+TEST_F(Win32SendInputInjectorTest, PartialSendRestoresOnlyModifiersActuallyReleased) {
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_LCONTROL || vk == VK_RCONTROL ? static_cast<SHORT>(-32768) : 0;
+    };
+    sendInputReturnOverride = 1;
+    Win32SendInputInjector inj(false);
+    EXPECT_FALSE(inj.Replace(1, L"x"));
+    ASSERT_EQ(capturedInputs.size(), 9u);
+    EXPECT_EQ(capturedInputs.back().ki.wVk, VK_LCONTROL);
+    EXPECT_EQ(capturedInputs.back().ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+}
+
+TEST_F(Win32SendInputInjectorTest, ControlIsReleasedBeforeGameReinject) {
+    Internal::g_getAsyncKeyState = [](int vk) -> SHORT {
+        return vk == VK_LCONTROL ? static_cast<SHORT>(-32768) : 0;
+    };
+    Win32SendInputInjector inj(false);
+    ASSERT_TRUE(inj.Replace(1, L"a", 'A'));
+    ASSERT_GE(capturedInputs.size(), 3u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_LCONTROL);
+    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_KEYUP, 0u);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, 'A');
+    EXPECT_EQ(capturedInputs[2].ki.wVk, VK_BACK);
 }
 
 }  // namespace NextKey::Output::Test

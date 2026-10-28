@@ -116,6 +116,8 @@ struct TypingConfig {
     // then drop this field + SharedState ESC_RESTORE_RAW flag.
     bool escRestoreRawEnabled = false; // Esc restores raw keys (e.g., víu → virus) and ends composition
     bool autoCapsMacro = false;        // Auto-capitalize expansion to match typed case
+    bool macroUndoOnBackspace = false; // Restore macro shortcut when Backspace is pressed right after expansion
+    bool macroTitleCase = false;       // Abc: uppercase each word instead of only the first letter
     bool allowEnglishBypass = false;   // Cho phép gõ dấu tự do / Bypass English blocking (e.g. yes -> ýe)
     // BS keeps typed chars when Chromium suggestion popup is showing.
     // OFF (default): bait U+202F + extra BS on every Chromium replace, so BS

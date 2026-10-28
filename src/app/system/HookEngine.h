@@ -442,7 +442,7 @@ private:
 
     // Drop the raw macro buffer. wasFirstCharAutoCapped_ is only meaningful while the
     // buffer still starts at the word's first character, so the two must die together —
-    // a surviving flag would title-case a macro matched by a restarted buffer.
+    // a surviving flag would capitalize a macro matched by a restarted buffer.
     void ClearMacroBuffer() noexcept;
 
     // Wave 3 PR 3.2 — IsTrayOrTaskbarWindow + IsWebView2App migrated to
@@ -594,7 +594,6 @@ private:
     // (main thread). Readers: hook hot path uses .load(acquire); other call
     // sites also use .load(acquire) for uniform pattern (cost = MOV on x86).
     std::atomic<bool> autoCaps_{false};
-    std::atomic<bool> autoCapsMacro_{false};
     // tempEngineOff_ / digitLedWord_: per-word "treat as English" flags.
     // Plain bool — written from hook thread (DispatchKeyAction, ProcessKeyUp)
     // AND main/WinEvent thread (OnFocusChanged, ToggleVietnameseMode, ClearWordState).
@@ -753,6 +752,18 @@ private:
     // (macroTable_ + spaceMacroKeys_ removed — Phase 3d. Live in
     // configSnapshot_->macroTable / ->spaceMacroKeys now.)
     std::wstring rawMacroBuffer_;
+
+    // Macro undo on Backspace (issue #264)
+    struct MacroUndoState {
+        std::wstring shortcut;
+        std::size_t  expansionLength{0};
+        bool         hasTrailingTrigger{false};
+        DWORD        timestamp{0};
+        bool         active{false};
+    };
+    MacroUndoState macroUndoState_{};
+    static constexpr DWORD kMacroUndoTimeoutMs = 4000;
+    void ClearMacroUndo() noexcept;
 
     // Hooks
     // Wave 3 PR 3.1 — hook handles, thread, mailbox moved to HookLifecycle.

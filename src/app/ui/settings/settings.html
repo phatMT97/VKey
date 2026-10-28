@@ -499,7 +499,7 @@
                                 <input type="hidden" id="val-macro-english" value="0">
                             </div>
                             <!-- 3. Auto caps macro -->
-                            <div class="setting-row group-last">
+                            <div class="setting-row">
                                 <span class="setting-label" data-i18n="s.auto_caps_macro">Tự động viết hoa theo phím
                                     tắt</span>
                                 <div class="spacer" style="width: *"></div>
@@ -509,6 +509,30 @@
                                     <div class="toggle-thumb-small"></div>
                                 </div>
                                 <input type="hidden" id="val-auto-caps-macro" value="0">
+                            </div>
+                            <div class="setting-row child-setting-row disabled">
+                                <span class="setting-label" data-i18n="s.macro_title_case"
+                                    data-tooltip="Gõ Bbh → Bún Bò Huế. Khi tắt: Bbh → Bún bò Huế. Không áp dụng cho viết hoa đầu câu tự động."
+                                    data-i18n-tooltip="s.macro_title_case_tooltip">Viết hoa đầu từng từ</span>
+                                <div class="spacer" style="width: *"></div>
+                                <div class="toggle-switch-small disabled" id="macro-title-case" aria-disabled="true">
+                                    <span class="toggle-label-i">I</span>
+                                    <span class="toggle-label-o">O</span>
+                                    <div class="toggle-thumb-small"></div>
+                                </div>
+                                <input type="hidden" id="val-macro-title-case" value="0">
+                            </div>
+                            <div class="setting-row group-last">
+                                <span class="setting-label" data-i18n="s.macro_undo_backspace"
+                                    data-tooltip="Sau khi bung nội dung gõ tắt, nhấn Backspace sẽ khôi phục lại từ gõ tắt ban đầu"
+                                    data-i18n-tooltip="s.macro_undo_backspace_tooltip">Khôi phục từ gõ tắt khi nhấn Backspace</span>
+                                <div class="spacer" style="width: *"></div>
+                                <div class="toggle-switch-small" id="macro-undo-backspace">
+                                    <span class="toggle-label-i">I</span>
+                                    <span class="toggle-label-o">O</span>
+                                    <div class="toggle-thumb-small"></div>
+                                </div>
+                                <input type="hidden" id="val-macro-undo-backspace" value="0">
                             </div>
                             <!-- 4. Quick Telex -->
                             <div class="setting-row">

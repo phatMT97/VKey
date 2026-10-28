@@ -22,7 +22,7 @@ ExcludedAppsDialog::ExcludedAppsDialog(HWND parent)
     : WindowPickerDialog({
         L"this://app/excludedapps/excludedapps.html",
         L"VKey - Excluded Apps",
-        420, 420, parent, true, 36, 40, true
+        420, 420, parent, false, 36, 40, true
     }) {
     appList_ = LoadTaggedAppList();
     populateList();

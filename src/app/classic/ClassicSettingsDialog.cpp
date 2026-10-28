@@ -677,6 +677,8 @@ void ClassicSettingsDialog::PopulateControls() {
 
     UpdateSpellCheckChildren();
     UpdateTsfChildren();
+    UpdateMacroChildren();
+    UpdateMacroCapsChildren();
 }
 
 void ClassicSettingsDialog::ReadControlValues() {
@@ -1057,6 +1059,14 @@ void ClassicSettingsDialog::OnCommand(WPARAM wParam, LPARAM lParam) {
 
                 SaveSettings();
 
+                if (meta->win32Id == IDC_CHECK_MACRO) {
+                    UpdateMacroChildren();
+                }
+
+                if (meta->win32Id == IDC_CHECK_AUTO_CAPS_MACRO) {
+                    UpdateMacroCapsChildren();
+                }
+
                 // TSF-apps toggle registers/unregisters the TSF DLL.
                 // Mirrors the Sciter handler in SettingsDialog.cpp:575-610.
                 if (meta->win32Id == IDC_CHECK_TSF_APPS) {
@@ -1240,6 +1250,20 @@ void ClassicSettingsDialog::UpdateTsfChildren() {
     const bool tsfEnabled = IsDlgButtonChecked(hwnd_, IDC_CHECK_TSF_APPS) == BST_CHECKED;
     if (HWND underline = GetDlgItem(hwnd_, IDC_CHECK_HIDE_PREEDIT_UNDERLINE)) {
         EnableWindow(underline, tsfEnabled ? TRUE : FALSE);
+    }
+}
+
+void ClassicSettingsDialog::UpdateMacroChildren() {
+    const bool enabled = IsDlgButtonChecked(hwnd_, IDC_CHECK_MACRO) == BST_CHECKED;
+    if (HWND undoBs = GetDlgItem(hwnd_, IDC_CHECK_MACRO_UNDO_BACKSPACE)) {
+        EnableWindow(undoBs, enabled ? TRUE : FALSE);
+    }
+}
+
+void ClassicSettingsDialog::UpdateMacroCapsChildren() {
+    const bool enabled = IsDlgButtonChecked(hwnd_, IDC_CHECK_AUTO_CAPS_MACRO) == BST_CHECKED;
+    if (HWND titleCase = GetDlgItem(hwnd_, IDC_CHECK_MACRO_TITLE_CASE)) {
+        EnableWindow(titleCase, enabled ? TRUE : FALSE);
     }
 }
 

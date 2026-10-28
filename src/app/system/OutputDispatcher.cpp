@@ -220,28 +220,51 @@ bool OutputDispatcher::ShouldUseClipboard(CodeTable currentTable) const noexcept
 // Low-level SendInput primitives
 // ─────────────────────────────────────────────────────────────────────
 void OutputDispatcher::SendBackspaceEvents(size_t count) noexcept {
-    WORD bsScan = static_cast<WORD>(MapVirtualKeyW(VK_BACK, MAPVK_VK_TO_VSC));
+    if (count == 0) return;
+    const auto heldMods = NextKey::Output::Internal::QueryHeldModifiers(count, L"");
     std::vector<INPUT> events;
-    events.reserve(count * 2);
+    events.reserve(heldMods.count * 2 + count * 2);
+    for (size_t k = 0; k < heldMods.count; ++k) {
+        events.push_back(NextKey::Output::Internal::MakeModifierEvent(heldMods.vks[k], true));
+    }
+    WORD bsScan = static_cast<WORD>(MapVirtualKeyW(VK_BACK, MAPVK_VK_TO_VSC));
     for (size_t i = 0; i < count; ++i) {
         AppendVkEvent(events, VK_BACK, bsScan);
     }
+    const auto restoreStart = events.size();
+    for (size_t k = 0; k < heldMods.count; ++k) {
+        events.push_back(NextKey::Output::Internal::MakeModifierEvent(heldMods.vks[k], false));
+    }
     sending_.store(true, std::memory_order_release);
-    (void)NextKey::Output::Internal::TrackedSendInput(
-        events.data(), static_cast<UINT>(events.size()));
+    UINT sent = 0;
+    if (!NextKey::Output::Internal::TrackedSendInput(
+            events.data(), static_cast<UINT>(events.size()), &sent)) {
+        NextKey::Output::Internal::RestoreModifiersAfterPartialSend(heldMods, sent, 0, restoreStart);
+    }
     sending_.store(false, std::memory_order_release);
     RecordSynthDispatch();
 }
 
 void OutputDispatcher::SendCharEvents(const std::wstring& text) noexcept {
+    const auto heldMods = NextKey::Output::Internal::QueryHeldModifiers(0, text);
     std::vector<INPUT> events;
-    events.reserve(text.size() * 2);
+    events.reserve(text.size() * 2 + heldMods.count * 2);
+    for (size_t k = 0; k < heldMods.count; ++k) {
+        events.push_back(NextKey::Output::Internal::MakeModifierEvent(heldMods.vks[k], true));
+    }
     for (wchar_t ch : text) {
         AppendUnicodeEvent(events, ch);
     }
+    const auto restoreStart = events.size();
+    for (size_t k = 0; k < heldMods.count; ++k) {
+        events.push_back(NextKey::Output::Internal::MakeModifierEvent(heldMods.vks[k], false));
+    }
     sending_.store(true, std::memory_order_release);
-    (void)NextKey::Output::Internal::TrackedSendInput(
-        events.data(), static_cast<UINT>(events.size()));
+    UINT sent = 0;
+    if (!NextKey::Output::Internal::TrackedSendInput(
+            events.data(), static_cast<UINT>(events.size()), &sent)) {
+        NextKey::Output::Internal::RestoreModifiersAfterPartialSend(heldMods, sent, 0, restoreStart);
+    }
     sending_.store(false, std::memory_order_release);
     RecordSynthDispatch();
 }

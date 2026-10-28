@@ -113,6 +113,23 @@ public:
     void OnNonRestoreKey() noexcept;  // Any key besides BS/ESC in Ready/Primed → Idle
     [[nodiscard]] bool TryRestoreLastCommitRaw(ITfContext* pContext);
 
+    // Macro undo on Backspace (issue #264)
+    [[nodiscard]] bool HasMacroUndo() const noexcept {
+        if (!macroUndoState_.active || !activeConfig_.macroUndoOnBackspace
+            || !IsMacroTrackingEnabled()) return false;
+        if ((GetTickCount() - macroUndoState_.timestamp) > kMacroUndoTimeoutMs) {
+            return false;
+        }
+        return true;
+    }
+    void ResetMacroUndo() noexcept {
+        macroUndoState_.active = false;
+        macroUndoState_.shortcut.clear();
+        macroUndoState_.expansion.clear();
+        macroUndoState_.expansionLength = 0;
+    }
+    bool UndoMacro(ITfContext* pContext);
+
     /// Reset engine state
     void Reset();
 
@@ -261,7 +278,8 @@ private:
     [[nodiscard]] bool IsMacroTrackingEnabled() const noexcept;
     [[nodiscard]] bool ReplacePrecedingText(ITfContext* pContext,
                                             std::size_t characterCount,
-                                            const std::wstring& replacement);
+                                            const std::wstring& replacement,
+                                            const std::wstring& expected = {});
     [[nodiscard]] std::wstring ReadPrecedingTextFromContext(ITfContext* pContext,
                                                             LONG maxChars = 64) const;
     /// Plan against an explicitly assembled raw buffer. Callers that must not
@@ -355,6 +373,17 @@ private:
     };
     LastCommit lastCommit_;
     CommitUndoState commitUndoState_ = CommitUndoState::Idle;
+
+    struct MacroUndoState {
+        std::wstring shortcut;
+        std::wstring expansion;
+        std::size_t  expansionLength{0};
+        DWORD        timestamp{0};
+        bool         active{false};
+    };
+    MacroUndoState macroUndoState_{};
+    bool tempMacroOff_{false};  // Do not immediately expand the restored shortcut.
+    static constexpr DWORD kMacroUndoTimeoutMs = 4000;
 
     static constexpr DWORD kCommitUndoTimeoutMs = 1500;
 

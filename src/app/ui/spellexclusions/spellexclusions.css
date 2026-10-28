@@ -111,7 +111,7 @@
 
 .list-col-counter {
     font-weight: 600;
-    color: var(--color-primary);
+    color: var(--text-secondary);
 }
 
 .app-list {

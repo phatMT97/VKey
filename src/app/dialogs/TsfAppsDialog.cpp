@@ -21,7 +21,7 @@ TsfAppsDialog::TsfAppsDialog(HWND parent)
     : WindowPickerDialog({
         L"this://app/tsfapps/tsfapps.html",
         L"VKey - TSF Apps",
-        360, 420, parent, true, 36, 40, true
+        360, 420, parent, false, 36, 40, true
     }) {
     appList_ = ConfigManager::LoadTsfApps(ConfigManager::GetConfigPath());
     populateList();

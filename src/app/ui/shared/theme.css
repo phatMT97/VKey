@@ -45,12 +45,12 @@
     --text-light: #333333;
 
     /* Background Colors (blur-friendly glass palette) */
-    --bg-glass: rgba(255, 255, 255, 1);
-    --bg-glass-light: rgba(255, 255, 255, 0.45);
-    --bg-card: rgba(255, 255, 255, 0.35);
-    --bg-card-solid: rgba(255, 255, 255, 0.85);
-    --bg-card-tab: rgba(255, 255, 255, 0.6);
-    --bg-title-bar: rgba(255, 255, 255, 0.12);
+    --bg-glass: rgba(244, 245, 247, 1);
+    --bg-glass-light: rgba(244, 245, 247, 0.6);
+    --bg-card: rgba(255, 255, 255, 0.7);
+    --bg-card-solid: rgba(255, 255, 255, 0.95);
+    --bg-card-tab: rgba(255, 255, 255, 0.8);
+    --bg-title-bar: rgba(244, 245, 247, 0.5);
     --bg-hover: rgba(0, 0, 0, 0.05);
     --bg-hover-subtle: rgba(0, 0, 0, 0.03);
     --bg-primary-hover: rgba(124, 184, 248, 0.15);
@@ -398,7 +398,7 @@ body.dark.win10 {
 }
 
 body.win10 .container {
-    border: 1px solid rgba(0, 0, 0, 0.1); /* Subtle dark border instead of white */
+    border: 1px solid rgba(0, 0, 0, 0.22); /* Clear visible border for Windows 10 */
     margin: 12px; /* Increased to allow softer shadow to spread without clipping */
     border-radius: 8px; /* Restored rounded corners per user request */
 }

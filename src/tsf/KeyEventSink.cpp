@@ -285,6 +285,7 @@ IFACEMETHODIMP KeyEventSink::OnSetFocus(BOOL fForeground) {
             // Focus change invalidates the commit-undo window — cursor may have
             // moved arbitrarily relative to the cached lastCommit_ text.
             pEngineController_->ResetCommitUndo();
+            pEngineController_->ResetMacroUndo();
         }
     } else {
         TSF_LOG(L"OnSetFocus: background");
@@ -316,6 +317,7 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
     }
     const bool routeToTsf = pEngineController_->RefreshKeyRouting();
     const UINT vk = static_cast<UINT>(wParam);
+    if (vk != VK_BACK) pEngineController_->ResetMacroUndo();
 
     // Drop any translated char cached by a previous OnTestKeyDown whose
     // OnKeyDown pair never fired (rare TSF anomaly).
@@ -405,6 +407,7 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
 
     // Modifiers -> commit and pass through
     if (ctrl || alt || win) {
+        pEngineController_->ResetMacroUndo();
         if (pEngineController_->HasEngineBuffer()) {
             TSF_LOG(L"OnTestKeyDown: modifier chord vk=0x%02X with live buffer → Commit",
                     static_cast<UINT>(wParam));
@@ -539,6 +542,12 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
     // restore raw via TryRestoreLastCommitRaw. Second BS in Primed → cancel.
     // Must run BEFORE BackspaceRevive so revive doesn't compete with undo.
     if (wParam == VK_BACK && !pEngineController_->HasEngineBuffer()) {
+        if (pEngineController_->HasMacroUndo()) {
+            *pfEaten = TRUE;
+            lastTestedVk_ = static_cast<UINT>(wParam);
+            lastWantKeyResult_ = true;
+            return S_OK;
+        }
         if (pEngineController_->IsCommitUndoReady()
             && pEngineController_->WithinUndoWindow()) {
             pEngineController_->TransitionUndoReadyToPrimed();
@@ -643,6 +652,11 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
     }
     const bool routeToTsf = pEngineController_->RefreshKeyRouting();
     const UINT vk = static_cast<UINT>(wParam);
+    // OnTestKeyDown may have just expanded this same trigger. Preserve that
+    // snapshot until its cached result is returned below.
+    if (vk != VK_BACK && vk != lastMacroHandledVk_) {
+        pEngineController_->ResetMacroUndo();
+    }
 
     if (vk != pendingClaimedSpaceVk_) {
         pendingClaimedSpaceVk_ = 0;
@@ -695,6 +709,7 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
     // composition (select-all breaks around the pre-edit word). Idempotent in
     // classic hosts: test phase already committed, buffer is empty.
     if (ctrl || alt || win) {
+        pEngineController_->ResetMacroUndo();
         if (pEngineController_->HasEngineBuffer()) {
             TSF_LOG(L"OnKeyDown: modifier chord vk=0x%02X with live buffer → Commit",
                     static_cast<UINT>(wParam));
@@ -711,6 +726,14 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
         lastEnglishMacroObservedVk_ = 0;
         if (eat) RememberClaimedSpaceKeyDown(vk, lParam);
         *pfEaten = eat ? TRUE : FALSE;
+        return S_OK;
+    }
+
+    if (vk == VK_BACK && pEngineController_->HasMacroUndo()) {
+        lastTestedVk_ = 0;
+        lastTranslatedChar_ = 0;
+        lastEnglishMacroObservedVk_ = 0;
+        *pfEaten = pEngineController_->UndoMacro(pContext) ? TRUE : FALSE;
         return S_OK;
     }
 

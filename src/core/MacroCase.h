@@ -20,7 +20,7 @@
 namespace NextKey::Macro {
 
 /// DI seam for locale-aware uppercase / lowercase. Production wraps
-/// CharUpperBuffW / CharLowerBuffW; tests use ASCII-only mappers.
+/// CharUpperBuffW / CharLowerBuffW; tests inject portable case mappings.
 class CaseMapper {
 public:
     virtual ~CaseMapper() = default;
@@ -35,8 +35,9 @@ struct PlanInputs {
     const std::unordered_map<std::wstring, std::wstring>& macroTable;
     bool macroCrossCommit;
     CodeTable currentCodeTable;
-    bool autoCapsEnabled;
-    bool wasFirstCharAutoCapped{false};
+    bool autoCapsEnabled;                 // Manual shortcut casing, not sentence auto-caps
+    bool titleCaseEnabled{false};         // Manual Abc → capitalize each word
+    bool wasFirstCharAutoCapped{false};    // First raw character was raised by sentence auto-caps
     wchar_t triggerChar;
     std::size_t clipboardThreshold;     // = HookEngine kMacroClipboardThreshold (200)
 };
@@ -47,6 +48,7 @@ struct MacroPlan {
     std::size_t bsCount{0};
     std::wstring expansion;             // post auto-caps; \n escapes still literal
     bool useClipboard{false};
+    std::wstring shortcut;              // Matched shortcut that was replaced (for undo)
 };
 
 /// Decide what (if anything) to expand. Pure function: no I/O, no globals.
@@ -72,6 +74,9 @@ struct Segment {
 /// this to defer printable macro expansion from OnTestKeyDown to OnKeyDown.
 [[nodiscard]] bool IsTextProducingTrigger(uint32_t vkCode,
                                           wchar_t triggerChar) noexcept;
+
+/// Backspace counts are reliable only for single-line, precomposed BMP text.
+[[nodiscard]] bool CanUndoWithBackspaces(std::wstring_view expansion) noexcept;
 
 /// True when a printable commit trigger must keep the composition as typed
 /// (no lexicon correction). Only real sentence punctuation `. , ; : ! ? )`

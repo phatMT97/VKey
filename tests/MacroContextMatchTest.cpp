@@ -24,11 +24,12 @@ struct Fixture {
     std::unordered_map<std::wstring, std::wstring> table{{L"nma", L"nhưng mà"}};
     wchar_t trigger = L' ';
     bool autoCaps = false;
+    bool titleCase = false;
 
     [[nodiscard]] std::optional<ContextMatch> Run(std::wstring_view text) const {
         return MatchInPrecedingText(text, trigger, table,
                                     LongestMacroKeyLength(table), autoCaps,
-                                    /*clipboardThreshold=*/200, mapper);
+                                    /*clipboardThreshold=*/200, mapper, titleCase);
     }
 };
 
@@ -125,7 +126,16 @@ TEST(MacroContextMatch, AutoCapsFollowsCandidateCaseNotWindowCase) {
 
     const auto upper = f.Run(L"Xin Nma");
     ASSERT_TRUE(upper.has_value());
-    EXPECT_EQ(upper->plan.expansion, L"Nhưng Mà");   // recap rule title-cases each word
+    EXPECT_EQ(upper->plan.expansion, L"Nhưng mà");
+}
+
+TEST(MacroContextMatch, TitleCaseOptionUsesTheSamePlanner) {
+    Fixture f;
+    f.autoCaps = true;
+    f.titleCase = true;
+    const auto match = f.Run(L"xin Nma");
+    ASSERT_TRUE(match.has_value());
+    EXPECT_EQ(match->plan.expansion, L"Nhưng Mà");
 }
 
 TEST(MacroContextMatch, LongestMacroKeyLengthMeasuresLongestKey) {

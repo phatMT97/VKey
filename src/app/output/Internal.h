@@ -13,6 +13,7 @@
 
 #include <windows.h>
 
+#include <array>
 #include <cstddef>
 #include <string_view>
 
@@ -76,6 +77,92 @@ ShouldEmitBait(bool needsBaitCharPrefix,
     if (!needsBaitCharPrefix || bsCount == 0) return false;
     if (suggestKeepChars && text.empty()) return false;
     return true;
+}
+
+// Held modifier detection for modifier-neutral synthetic injection.
+// Backspace (VK_BACK) sent while Shift/Ctrl/Alt/Win is held combines with
+// the modifier into destructive shortcuts:
+//   - Shift+BS: destructive selection/edit command in Excel Web (issue #225)
+//   - Ctrl+BS: word/line delete in Sublime, Notepad++, Word, Chrome (issue #267)
+//   - Alt+BS: Undo command in Windows text controls
+//   - Win+BS: OS shortcut
+// Furthermore, non-Shift modifiers (Ctrl/Alt/Win) held while Unicode text is
+// injected can cause applications (such as Microsoft Word) to discard the text
+// or treat it as control sequences.
+//
+// Shift is excluded when bsCount == 0 because typing uppercase with Shift held
+// is normal typing behavior and KEYEVENTF_UNICODE already case-encodes the glyph.
+struct HeldModifiers {
+    std::array<WORD, 8> vks{};
+    std::size_t count = 0;
+};
+
+[[nodiscard]] inline INPUT MakeModifierEvent(WORD vk, bool keyup) noexcept {
+    INPUT input{};
+    input.type = INPUT_KEYBOARD;
+    input.ki.wVk = vk;
+    input.ki.wScan = static_cast<WORD>(::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
+    input.ki.dwFlags = keyup ? KEYEVENTF_KEYUP : 0u;
+    if (vk == VK_RCONTROL || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN) {
+        input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    input.ki.dwExtraInfo = kVKeyExtraInfo;
+    return input;
+}
+
+inline void RestoreModifiersAfterPartialSend(const HeldModifiers& held, UINT sent,
+                                              std::size_t releaseStart,
+                                              std::size_t restoreStart) noexcept {
+    std::array<INPUT, 8> restore{};
+    UINT count = 0;
+    for (std::size_t k = 0; k < held.count; ++k) {
+        if (sent > releaseStart + k && sent <= restoreStart + k) {
+            restore[count++] = MakeModifierEvent(held.vks[k], false);
+        }
+    }
+    if (count > 0) (void)TrackedSendInput(restore.data(), count);
+}
+
+[[nodiscard]] inline HeldModifiers QueryHeldModifiers(std::size_t bsCount,
+                                                      std::wstring_view text) noexcept {
+    HeldModifiers result{};
+    if (bsCount == 0 && text.empty()) return result;
+
+    const bool hasLShift = (g_getAsyncKeyState(VK_LSHIFT) & 0x8000) != 0;
+    const bool hasRShift = (g_getAsyncKeyState(VK_RSHIFT) & 0x8000) != 0;
+    const bool hasLCtrl  = (g_getAsyncKeyState(VK_LCONTROL) & 0x8000) != 0;
+    const bool hasRCtrl  = (g_getAsyncKeyState(VK_RCONTROL) & 0x8000) != 0;
+    const bool hasLAlt   = (g_getAsyncKeyState(VK_LMENU) & 0x8000) != 0;
+    const bool hasRAlt   = (g_getAsyncKeyState(VK_RMENU) & 0x8000) != 0;
+    const bool hasLWin   = (g_getAsyncKeyState(VK_LWIN) & 0x8000) != 0;
+    const bool hasRWin   = (g_getAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+
+    if (bsCount > 0) {
+        if (hasLShift) result.vks[result.count++] = VK_LSHIFT;
+        if (hasRShift) result.vks[result.count++] = VK_RSHIFT;
+        if (!hasLShift && !hasRShift && (g_getAsyncKeyState(VK_SHIFT) & 0x8000) != 0) {
+            result.vks[result.count++] = VK_LSHIFT;
+        }
+    }
+
+    if (bsCount > 0 || !text.empty()) {
+        if (hasLCtrl) result.vks[result.count++] = VK_LCONTROL;
+        if (hasRCtrl) result.vks[result.count++] = VK_RCONTROL;
+        if (!hasLCtrl && !hasRCtrl && (g_getAsyncKeyState(VK_CONTROL) & 0x8000) != 0) {
+            result.vks[result.count++] = VK_LCONTROL;
+        }
+
+        if (hasLAlt) result.vks[result.count++] = VK_LMENU;
+        if (hasRAlt) result.vks[result.count++] = VK_RMENU;
+        if (!hasLAlt && !hasRAlt && (g_getAsyncKeyState(VK_MENU) & 0x8000) != 0) {
+            result.vks[result.count++] = VK_LMENU;
+        }
+
+        if (hasLWin) result.vks[result.count++] = VK_LWIN;
+        if (hasRWin) result.vks[result.count++] = VK_RWIN;
+    }
+
+    return result;
 }
 
 }  // namespace NextKey::Output::Internal

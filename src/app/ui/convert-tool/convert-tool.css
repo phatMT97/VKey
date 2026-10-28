@@ -27,7 +27,7 @@
 .title-text {
     font-size: 16px;
     font-weight: 700;
-    color: var(--color-primary);
+    color: var(--text-primary);
     letter-spacing: 0.5px;
 }
 
@@ -136,7 +136,7 @@
 .card-title {
     font-size: 12px;
     font-weight: 600;
-    color: var(--color-primary);
+    color: var(--text-secondary);
     margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -314,7 +314,7 @@
 .hotkey-display {
     font-family: "Cascadia Code", "Consolas", monospace;
     font-weight: 600;
-    color: var(--color-primary);
+    color: var(--text-primary);
 }
 
 .record-hint {

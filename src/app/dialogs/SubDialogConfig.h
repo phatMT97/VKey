@@ -14,7 +14,7 @@ struct SubDialogConfig {
     int baseWidth = 360;
     int baseHeight = 420;
     HWND parentHwnd = nullptr;        // Center on parent (or screen if null)
-    bool topmost = true;              // HWND_TOPMOST
+    bool topmost = false;             // HWND_TOPMOST (defaults to false; inherits from parent if pinned)
     int titleBarHeight = 36;          // Drag zone height
     int buttonsWidth = 40;            // Exclude from drag zone
     bool applyBackgroundOpacity = true; // Load UIConfig + call JS setBackgroundOpacity

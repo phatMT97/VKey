@@ -127,7 +127,7 @@ SciterSubDialog::SciterSubDialog(const SubDialogConfig& config)
             if (isDark) {
                 swprintf_s(bgColor, L"rgba(18, 20, 28, %.2f)", opacity);
             } else {
-                swprintf_s(bgColor, L"rgba(255, 255, 255, %.2f)", opacity);
+                swprintf_s(bgColor, L"rgba(244, 245, 247, %.2f)", opacity);
             }
             mainContainer.set_style_attribute("background-color", bgColor);
         }
@@ -182,8 +182,20 @@ SciterSubDialog::SciterSubDialog(const SubDialogConfig& config)
     if (posX < workArea.left) posX = workArea.left;
     if (posY < workArea.top)  posY = workArea.top;
 
-    SetWindowPos(get_hwnd(), config_.topmost ? HWND_TOPMOST : HWND_NOTOPMOST,
+    bool isTopmost = config_.topmost;
+    if (config_.parentHwnd) {
+        // Inherit TOPMOST only if parent window is currently TOPMOST (e.g. Settings pinned)
+        LONG_PTR exStyle = GetWindowLongPtrW(config_.parentHwnd, GWL_EXSTYLE);
+        if (exStyle & WS_EX_TOPMOST) {
+            isTopmost = true;
+        }
+        // Establish Win32 window ownership so this dialog always stays above parent without being global TOPMOST
+        ::SetWindowLongPtrW(get_hwnd(), GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(config_.parentHwnd));
+    }
+
+    SetWindowPos(get_hwnd(), isTopmost ? HWND_TOPMOST : HWND_NOTOPMOST,
                  posX, posY, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+    SetForegroundWindow(get_hwnd());
 
     // Force taskbar presence while DWM transitions are still disabled (avoids flicker)
     SciterHelper::ForceTaskbarPresence(get_hwnd(), IDI_APP);
@@ -316,7 +328,7 @@ LRESULT CALLBACK SciterSubDialog::SubclassProc(
                         if (dark) {
                             swprintf_s(bgColor, L"rgba(18, 20, 28, %.2f)", opacity);
                         } else {
-                            swprintf_s(bgColor, L"rgba(255, 255, 255, %.2f)", opacity);
+                            swprintf_s(bgColor, L"rgba(244, 245, 247, %.2f)", opacity);
                         }
                         container.set_style_attribute("background-color", bgColor);
                     }

@@ -54,7 +54,8 @@ struct ContextMatch {
     std::size_t maxShortcutLen,
     bool autoCapsEnabled,
     std::size_t clipboardThreshold,
-    const CaseMapper& mapper) {
+    const CaseMapper& mapper,
+    bool titleCaseEnabled = false) {
 
     if (precedingText.empty() || macroTable.empty()) return std::nullopt;
 
@@ -89,12 +90,10 @@ struct ContextMatch {
             .macroCrossCommit = true,
             .currentCodeTable = CodeTable::Unicode,
             .autoCapsEnabled = autoCapsEnabled,
-            // The flag exists only because the tracked raw buffer holds the
-            // pre-auto-cap character while the document shows the capitalized
-            // one. Candidates here come straight from the document, so their
-            // case is already truthful and Plan's own iswupper() check covers
-            // it — forwarding the tracked flag would capitalize expansions for
-            // a candidate that starts lowercase.
+            .titleCaseEnabled = titleCaseEnabled,
+            // Document text has no evidence of who capitalized it. Do not
+            // borrow sentence state from a different tracked candidate; use
+            // this candidate's visible case when macro casing is enabled.
             .wasFirstCharAutoCapped = false,
             .triggerChar = triggerChar,
             .clipboardThreshold = clipboardThreshold,

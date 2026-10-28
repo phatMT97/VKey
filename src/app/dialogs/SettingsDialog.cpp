@@ -165,7 +165,10 @@ SettingsDialog::SettingsDialog()
     int winWidth = rc.right - rc.left;
     int winHeight = rc.bottom - rc.top;
     POINT pt = NextKey::GetCenteredPos(get_hwnd(), winWidth, winHeight);
-    SetWindowPos(get_hwnd(), HWND_NOTOPMOST, pt.x, pt.y, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+    // initializeUI() already applied the saved pin state. Centering must keep
+    // that z-order, otherwise reopening leaves a yellow icon on an unpinned HWND.
+    SetWindowPos(get_hwnd(), nullptr, pt.x, pt.y, 0, 0,
+                 SWP_NOSIZE | SWP_SHOWWINDOW | SWP_NOZORDER);
     SetForegroundWindow(get_hwnd());
 
     // Force taskbar presence while DWM transitions are still disabled (avoids flicker)
@@ -431,7 +434,7 @@ LRESULT CALLBACK SettingsDialog::SubclassProc(
                     if (dark) {
                         swprintf_s(bgColor, L"rgba(18, 20, 28, %.2f)", opacity);
                     } else {
-                        swprintf_s(bgColor, L"rgba(255, 255, 255, %.2f)", opacity);
+                        swprintf_s(bgColor, L"rgba(244, 245, 247, %.2f)", opacity);
                     }
                     container.set_style_attribute("background-color", bgColor);
                 }
@@ -751,6 +754,7 @@ void SettingsDialog::handleToggleChange(const std::wstring& id, bool value) {
     }
     else if (id == L"use-macro") {
         config_.macroEnabled = value;
+        call_function("updateMacroChildren", sciter::value(value));
     }
     else if (id == L"macro-english") {
         config_.macroInEnglish = value;
@@ -766,6 +770,13 @@ void SettingsDialog::handleToggleChange(const std::wstring& id, bool value) {
     }
     else if (id == L"auto-caps-macro") {
         config_.autoCapsMacro = value;
+        call_function("updateMacroCapsChildren", sciter::value(value));
+    }
+    else if (id == L"macro-title-case") {
+        config_.macroTitleCase = value;
+    }
+    else if (id == L"macro-undo-backspace") {
+        config_.macroUndoOnBackspace = value;
     }
     // Show-advanced toggle: UI-only setting (expand/collapse panel)
     else if (id == L"show-advanced") {
@@ -863,7 +874,7 @@ void SettingsDialog::handleToggleChange(const std::wstring& id, bool value) {
             if (dark) {
                 swprintf_s(bgColor, L"rgba(18, 20, 28, %.2f)", opacity);
             } else {
-                swprintf_s(bgColor, L"rgba(255, 255, 255, %.2f)", opacity);
+                swprintf_s(bgColor, L"rgba(244, 245, 247, %.2f)", opacity);
             }
             container.set_style_attribute("background-color", bgColor);
         }
@@ -1320,6 +1331,10 @@ void SettingsDialog::initializeUI() {
     setToggleState(L"quick-start", config_.quickStartConsonant);
     setToggleState(L"quick-end", config_.quickEndConsonant);
     setToggleState(L"auto-caps-macro", config_.autoCapsMacro);
+    setToggleState(L"macro-undo-backspace", config_.macroUndoOnBackspace);
+    call_function("updateMacroChildren", sciter::value(config_.macroEnabled));
+    setToggleState(L"macro-title-case", config_.macroTitleCase);
+    call_function("updateMacroCapsChildren", sciter::value(config_.autoCapsMacro));
     // esc-restore-raw / temp-off-openkey / temp-off-macro toggles were removed
     // when the unified Hotkey Rebind dialog took over their behavior. Per-intent
     // enable now lives in HotkeyRegistry (hotkey_state TOML section).
@@ -1423,18 +1438,19 @@ void SettingsDialog::initializeUI() {
             if (dark) {
                 swprintf_s(bgColor, L"rgba(18, 20, 28, %.2f)", opacity);
             } else {
-                swprintf_s(bgColor, L"rgba(255, 255, 255, %.2f)", opacity);
+                swprintf_s(bgColor, L"rgba(244, 245, 247, %.2f)", opacity);
             }
             container.set_style_attribute("background-color", bgColor);
         }
     }
 
-    // Apply pinned state if saved
-    if (isPinned_) {
-        SetWindowPos(get_hwnd(), HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    // Apply both states: config reloads can also turn pinning off.
+    SetWindowPos(get_hwnd(), isPinned_ ? HWND_TOPMOST : HWND_NOTOPMOST,
+                 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    {
         sciter::dom::element pinBtn = root.find_first("#btn-pin");
         if (pinBtn.is_valid()) {
-            pinBtn.set_attribute("class", L"btn-pin pinned");
+            pinBtn.set_attribute("class", isPinned_ ? L"btn-pin pinned" : L"btn-pin");
         }
     }
 

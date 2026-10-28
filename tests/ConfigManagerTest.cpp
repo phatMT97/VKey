@@ -265,6 +265,52 @@ tsf_apps = true
     EXPECT_TRUE(loaded->hidePreeditUnderline);
 }
 
+TEST_F(ConfigManagerTest, MacroUndoOnBackspaceDefaultsOffAndRoundTrips) {
+    WriteTestConfig(R"(
+[features]
+macro_enabled = true
+[macros]
+bbh = 'bún bò Huế'
+)");
+    auto config = ConfigManager::LoadFromFile(testConfigPath_);
+    ASSERT_TRUE(config.has_value());
+    EXPECT_FALSE(config->macroUndoOnBackspace);
+    const auto macros = ConfigManager::LoadMacros(testConfigPath_);
+
+    for (bool undoOnBs : {true, false}) {
+        config->macroUndoOnBackspace = undoOnBs;
+        ASSERT_TRUE(ConfigManager::SaveToFile(testConfigPath_, *config));
+        const auto loaded = ConfigManager::LoadFromFile(testConfigPath_);
+        ASSERT_TRUE(loaded.has_value());
+        EXPECT_EQ(loaded->macroUndoOnBackspace, undoOnBs);
+        EXPECT_TRUE(loaded->macroEnabled);
+        EXPECT_EQ(ConfigManager::LoadMacros(testConfigPath_), macros);
+    }
+}
+
+TEST_F(ConfigManagerTest, MacroTitleCaseDefaultsOffAndRoundTripsWithoutChangingMacros) {
+    WriteTestConfig(R"(
+[features]
+auto_caps_macro = true
+[macros]
+nMa = 'on My way'
+)");
+    auto config = ConfigManager::LoadFromFile(testConfigPath_);
+    ASSERT_TRUE(config.has_value());
+    EXPECT_FALSE(config->macroTitleCase);
+    const auto macros = ConfigManager::LoadMacros(testConfigPath_);
+
+    for (bool titleCase : {true, false}) {
+        config->macroTitleCase = titleCase;
+        ASSERT_TRUE(ConfigManager::SaveToFile(testConfigPath_, *config));
+        const auto loaded = ConfigManager::LoadFromFile(testConfigPath_);
+        ASSERT_TRUE(loaded.has_value());
+        EXPECT_EQ(loaded->macroTitleCase, titleCase);
+        EXPECT_TRUE(loaded->autoCapsMacro);
+        EXPECT_EQ(ConfigManager::LoadMacros(testConfigPath_), macros);
+    }
+}
+
 TEST_F(ConfigManagerTest, SaveToFile_PreservesUISection) {
     // First save UI config
     UIConfig uiConfig;
