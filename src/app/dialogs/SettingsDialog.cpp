@@ -259,8 +259,8 @@ LRESULT CALLBACK SettingsDialog::SubclassProc(
         return 0;
     }
 
-    // WM_CLOSE: terminate child subdialogs, flush deferred save, then destroy
-    // (MUST use DestroyWindow, not PostQuitMessage — Sciter assertion failures)
+    // WM_CLOSE: terminate child subdialogs, flush deferred save, then destroy & exit
+    // (MUST use ExitProcess — avoids Sciter assertion failures during normal teardown)
     if (msg == WM_CLOSE) {
         // Terminate any subdialogs we spawned (they run as separate processes)
         TerminateAllSubprocesses();
@@ -269,7 +269,9 @@ LRESULT CALLBACK SettingsDialog::SubclassProc(
             KillTimer(hwnd, TIMER_DEFERRED_SAVE);
             s_instance->saveToToml();
         }
+        ShowWindow(hwnd, SW_HIDE);
         DestroyWindow(hwnd);
+        ExitProcess(0);
         return 0;
     }
 

@@ -143,11 +143,9 @@ SciterSubDialog::SciterSubDialog(const SubDialogConfig& config)
     // Without this, the background stays solid black instead of blurred/transparent.
     expand();
 
-    // Finally, move the initialized window onscreen (it was created at -10000, -10000)
-    RECT rc;
-    GetWindowRect(get_hwnd(), &rc);
-    int winWidth = rc.right - rc.left;
-    int winHeight = rc.bottom - rc.top;
+    // Finally, size and move the initialized window onscreen (it was created at -10000, -10000)
+    int winWidth = ScaleHelper::scaleForWindow(config_.parentHwnd, config_.baseWidth, SubDialogWin10Pad());
+    int winHeight = ScaleHelper::scaleForWindow(config_.parentHwnd, config_.baseHeight, SubDialogWin10Pad());
 
     int posX, posY;
     HMONITOR monitor;
@@ -192,7 +190,7 @@ SciterSubDialog::SciterSubDialog(const SubDialogConfig& config)
     }
 
     SetWindowPos(get_hwnd(), isTopmost ? HWND_TOPMOST : HWND_NOTOPMOST,
-                 posX, posY, 0, 0, SWP_NOSIZE | SWP_SHOWWINDOW);
+                 posX, posY, winWidth, winHeight, SWP_SHOWWINDOW);
     SetForegroundWindow(get_hwnd());
 
     // Force taskbar presence while DWM transitions are still disabled (avoids flicker)

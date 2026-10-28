@@ -54,14 +54,7 @@ namespace NextKey {
         NEXTKEY_LOG(L"Settings changed");
     });
 
-    // Message loop
-    MSG msg;
-    while (GetMessageW(&msg, nullptr, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
-
-        if (!IsWindow(dialog.get_hwnd())) break;
-    }
+    dialog.Show();
 
     // Kill any child processes (ExcludedApps, TsfApps, Macro, AppOverrides)
     // that Settings may have spawned and are still open.
