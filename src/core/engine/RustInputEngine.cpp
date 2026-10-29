@@ -208,6 +208,7 @@ uint32_t MapFeatures(const TypingConfig& c) {
     if (c.quickConsonant) f |= VKEY_FEAT_QUICK_CONSONANT;
     if (c.quickEndConsonant) f |= VKEY_FEAT_QUICK_END_CONSONANT;
     if (c.spellCheckEnabled) f |= VKEY_FEAT_SPELL_CHECK;
+    if (!c.autoRestoreEnabled) f |= VKEY_FEAT_DISABLE_AUTO_RESTORE;
     if (c.spellSuggestEnabled && c.autoRestoreEnabled) f |= VKEY_FEAT_SPELL_SUGGEST;
     if (c.allowEnglishBypass) f |= VKEY_FEAT_ALLOW_ENGLISH_BYPASS;
     if (c.allowZwjf) f |= VKEY_FEAT_ALLOW_ZWJF;

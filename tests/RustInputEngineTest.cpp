@@ -55,6 +55,29 @@ TEST_F(RustInputEngineTest, TelexComposesAndCommits) {
     EXPECT_EQ(engine.Count(), 0u);
 }
 
+// The published engine pin predates this contract. Its source and FFI tests
+// run in VKey-rs; exercise the adapter matrix against the local fixed artifact.
+#ifdef VKEY_TEST_UNRELEASED_ENGINE
+TEST_F(RustInputEngineTest, DistantStrokeRestoresAtCommitAndRespectsAutoRestore) {
+    for (auto method : {InputMethod::Telex, InputMethod::SimpleTelex, InputMethod::Combined, InputMethod::VNI}) {
+        for (bool suggest : {false, true}) {
+            for (bool restore : {false, true}) {
+                TypingConfig config;
+                config.inputMethod = method;
+                config.spellCheckEnabled = true;
+                config.spellSuggestEnabled = suggest;
+                config.autoRestoreEnabled = restore;
+                RustInputEngine engine(config);
+                const std::wstring raw = method == InputMethod::VNI ? L"dff9" : L"dffd";
+                for (wchar_t ch : raw) engine.PushChar(ch);
+                EXPECT_EQ(engine.Peek(), L"đff");
+                EXPECT_EQ(engine.Commit(), restore ? raw : L"đff");
+            }
+        }
+    }
+}
+#endif
+
 TEST_F(RustInputEngineTest, ShiftedBracketsPreserveUppercaseAndEscapeThroughFfi) {
     TypingConfig config;
     config.inputMethod = InputMethod::Telex;

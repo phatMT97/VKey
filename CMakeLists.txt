@@ -123,6 +123,8 @@ target_include_directories(VKeyEngine PUBLIC
 # inspected, so an accidental Classic + Rust release configuration fails early.
 option(VKEY_LITE_MODE "Build Classic (Win32 native) UI instead of Sciter" OFF)
 option(VKEY_USE_RUST_ENGINE "Use the prebuilt closed-source Rust engine (C ABI)" OFF)
+option(VKEY_TEST_UNRELEASED_ENGINE
+    "Run adapter behavior tests that require a locally built unreleased engine" OFF)
 option(VKEY_ALLOW_UNSIGNED_LOCAL_ENGINE
     "Allow a Release development build to trust the exact engine.lock hash" OFF)
 option(VKEY_CLASSIC_ALLOW_RUST_ENGINE_FOR_DEV
@@ -1081,6 +1083,9 @@ target_include_directories(VKeyTests PRIVATE
 )
 if(VKEY_USE_RUST_ENGINE)
     target_compile_definitions(VKeyTests PRIVATE VKEY_USE_RUST_ENGINE)
+    if(VKEY_TEST_UNRELEASED_ENGINE)
+        target_compile_definitions(VKeyTests PRIVATE VKEY_TEST_UNRELEASED_ENGINE)
+    endif()
     # RustInputEngineTest reads VKEY_ENGINE_ABI_VERSION to skip assertions the
     # vendored artifact cannot satisfy yet. Compile-time visible on purpose: an
     # unreachable header breaks the build instead of silently skipping.

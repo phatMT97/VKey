@@ -44,6 +44,8 @@ extern "C" {
 #define VKEY_FEAT_ALLOW_ENGLISH_BYPASS (1u << 5)
 #define VKEY_FEAT_ALLOW_ZWJF           (1u << 6)
 #define VKEY_FEAT_SPELL_SUGGEST        (1u << 7)
+/* Opt out of commit-time raw restoration; older callers retain the default. */
+#define VKEY_FEAT_DISABLE_AUTO_RESTORE (1u << 8)
 
 /* Opaque engine handle. */
 typedef struct VKeyEngine VKeyEngine;

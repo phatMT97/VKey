@@ -114,6 +114,12 @@ cmake --build build --config Release
 Only the configure line needs the two flags; rebuilds are unchanged because the
 cache remembers them. You only revisit this after deleting `CMakeCache.txt`.
 
+When testing behavior added to a locally built engine before its release is
+pinned, configure with `-DVKEY_TEST_UNRELEASED_ENGINE=ON` as well. This enables
+adapter tests for those new contracts, including commit-time restoration in
+issue #272. Leave it off when testing the published engine pin; the engine's
+own regression and C ABI tests cover the new behavior in its source repository.
+
 Working on something unrelated to the engine? Skip it entirely and skip the token
 with it:
 
