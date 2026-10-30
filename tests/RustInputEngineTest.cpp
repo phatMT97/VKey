@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <utility>
 
 #include "core/engine/CommittedTextRestore.h"
 #include "core/engine/RustInputEngine.h"
@@ -103,7 +104,7 @@ TEST_F(RustInputEngineTest, ContextualHornCompletionAndBackspaceThroughFfi) {
     }
 }
 
-TEST_F(RustInputEngineTest, DistantStrokeRestoresAtCommitAndRespectsAutoRestore) {
+TEST_F(RustInputEngineTest, InvalidDistantStrokeStaysLiteralWithEitherRestorePolicy) {
     for (auto method : {InputMethod::Telex, InputMethod::SimpleTelex, InputMethod::Combined, InputMethod::VNI}) {
         for (bool suggest : {false, true}) {
             for (bool restore : {false, true}) {
@@ -115,8 +116,42 @@ TEST_F(RustInputEngineTest, DistantStrokeRestoresAtCommitAndRespectsAutoRestore)
                 RustInputEngine engine(config);
                 const std::wstring raw = method == InputMethod::VNI ? L"dff9" : L"dffd";
                 for (wchar_t ch : raw) engine.PushChar(ch);
-                EXPECT_EQ(engine.Peek(), L"đff");
-                EXPECT_EQ(engine.Commit(), restore ? raw : L"đff");
+                EXPECT_EQ(engine.Peek(), raw);
+                EXPECT_EQ(engine.Commit(), raw);
+            }
+        }
+    }
+}
+
+TEST_F(RustInputEngineTest, ScopedStrokeAndLocalRepetitionThroughFfi) {
+    const struct Case {
+        const wchar_t* telex;
+        const wchar_t* vni;
+        const wchar_t* expected;
+    } cases[] = {
+        {L"dddd", L"dd9", L"dđ"},
+        {L"ddmd", L"d9md", L"đmd"},
+        {L"dmdd", L"dmd9", L"dmđ"},
+        {L"dffdd", L"dffd9", L"dffđ"},
+        {L"hddldd", L"hd9ld9", L"hđlđ"},
+        {L"dieud", L"dieu9", L"đieu"},
+        {L"viecj", L"viec5", L"viẹc"},
+    };
+    for (auto method : {InputMethod::Telex, InputMethod::SimpleTelex,
+                        InputMethod::Combined, InputMethod::VNI}) {
+        for (bool spellCheck : {false, true}) {
+            TypingConfig config;
+            config.inputMethod = method;
+            config.spellCheckEnabled = spellCheck;
+            config.spellSuggestEnabled = false;
+            for (const auto& test : cases) {
+                RustInputEngine engine(config);
+                const std::wstring raw = method == InputMethod::VNI ? test.vni : test.telex;
+                SCOPED_TRACE(::testing::PrintToString(raw));
+                for (wchar_t key : raw) engine.PushChar(key);
+                EXPECT_EQ(engine.Peek(), test.expected);
+                EXPECT_EQ(engine.PeekRaw(), raw);
+                EXPECT_EQ(engine.Commit(), test.expected);
             }
         }
     }
