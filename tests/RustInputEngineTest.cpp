@@ -58,6 +58,51 @@ TEST_F(RustInputEngineTest, TelexComposesAndCommits) {
 // The published engine pin predates this contract. Its source and FFI tests
 // run in VKey-rs; exercise the adapter matrix against the local fixed artifact.
 #ifdef VKEY_TEST_UNRELEASED_ENGINE
+TEST_F(RustInputEngineTest, ContextualHornCompletionAndBackspaceThroughFfi) {
+    const struct Case {
+        const wchar_t* telex;
+        const wchar_t* vni;
+        const wchar_t* before;
+        int backspaces;
+        const wchar_t* after;
+    } cases[] = {
+        {L"uwo", L"u7o7", L"ươ", 0, L"ươ"},
+        {L"uwow", L"u7o7", L"ươ", 0, L"ươ"},
+        {L"uow", L"uo7", L"ươ", 0, L"ươ"},
+        {L"huow", L"huo7", L"huơ", 0, L"huơ"},
+        {L"thuowr", L"thuo73", L"thuở", 0, L"thuở"},
+        {L"quow", L"quo7", L"quơ", 0, L"quơ"},
+        {L"huowng", L"huo7ng", L"hương", 0, L"hương"},
+        {L"thuowng", L"thuo7ng", L"thương", 0, L"thương"},
+        {L"duongdwf", L"duong972", L"đường", 2, L"đườ"},
+        {L"luoiws", L"luoi71", L"lưới", 1, L"lướ"},
+        {L"duocdwj", L"duoc975", L"được", 1, L"đượ"},
+        {L"duocdwj", L"duoc975", L"được", 2, L"đư"},
+        {L"dadf", L"da92", L"đà", 1, L"đ"},
+    };
+    for (auto method : {InputMethod::Telex, InputMethod::SimpleTelex,
+                        InputMethod::Combined, InputMethod::VNI}) {
+        for (bool spellCheck : {false, true}) {
+            TypingConfig config;
+            config.inputMethod = method;
+            config.spellCheckEnabled = spellCheck;
+            config.spellSuggestEnabled = false;
+            for (const auto& test : cases) {
+                const std::wstring raw = method == InputMethod::VNI ? test.vni : test.telex;
+                SCOPED_TRACE(::testing::PrintToString(raw));
+                RustInputEngine engine(config);
+                for (wchar_t key : raw) engine.PushChar(key);
+                EXPECT_EQ(engine.Peek(), test.before);
+                EXPECT_EQ(engine.PeekRaw(), raw);
+                for (int i = 0; i < test.backspaces; ++i) engine.Backspace();
+                EXPECT_EQ(engine.Peek(), test.after);
+                EXPECT_EQ(engine.Commit(), test.after);
+                EXPECT_TRUE(engine.Peek().empty());
+            }
+        }
+    }
+}
+
 TEST_F(RustInputEngineTest, DistantStrokeRestoresAtCommitAndRespectsAutoRestore) {
     for (auto method : {InputMethod::Telex, InputMethod::SimpleTelex, InputMethod::Combined, InputMethod::VNI}) {
         for (bool suggest : {false, true}) {
