@@ -1043,6 +1043,29 @@ TEST_F(RustInputEngineTest, TestSoafUserDictionary) {
     }
 }
 
+TEST_F(RustInputEngineTest, ContextReranking_Noi_Ddieu) {
+    TypingConfig config;
+    config.inputMethod = InputMethod::Telex;
+    config.spellCheckEnabled = true;
+    config.spellSuggestEnabled = true;
+
+    RustInputEngine engine(config);
+
+    // 1. Type "nois" -> commits "nói"
+    for (wchar_t c : std::wstring_view(L"nois")) engine.PushChar(c);
+    EXPECT_EQ(engine.Peek(), L"n\u00f3i");
+    EXPECT_EQ(engine.Commit(), L"n\u00f3i");
+
+    // NexusKey calls Reset() between words (in ClearWordState)
+    engine.Reset();
+
+    // 2. Type "ddieu" -> with context "nói", reranker flips it to "điêu" (instead of "điều")!
+    for (wchar_t c : std::wstring_view(L"ddieu")) engine.PushChar(c);
+    EXPECT_EQ(engine.Peek(), L"\u0111ieu");
+    EXPECT_EQ(engine.Commit(), L"\u0111i\u00eau");
+    EXPECT_TRUE(engine.LastCommitWasCorrected());
+}
+
 #endif
 
 }  // namespace

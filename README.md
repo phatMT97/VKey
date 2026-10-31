@@ -402,13 +402,55 @@ VKey is built with a lean architecture and no heavy runtime dependencies, keepin
 - Dịch vụ ký số (Authenticode) trên Windows cho các bản v4.0–v4.2 trước đây được cung cấp miễn phí bởi [SignPath.io](https://signpath.io/), chứng chỉ ký số bởi [SignPath Foundation](https://signpath.org/). Phương án chỉ ký Classic cho v4.3 đang chờ phê duyệt lại.
 
 ### Top Testers
-Cảm ơn các thành viên cộng đồng đã test và góp ý:
-- [Zenfas](https://github.com/Zenfas)
-- [huntersun](https://github.com/huntersun)
-- [haihv8x](https://github.com/haihv8x)
-- [os-hoanghv](https://github.com/os-hoanghv)
-- [Shzr0](https://github.com/Shzr0)
-- [nghiabros](https://github.com/nghiabros)
+
+Cảm ơn các thành viên cộng đồng đã nhiệt tình thử nghiệm và đóng góp ý kiến:
+
+<table>
+  <tr>
+    <td align="center" valign="top" width="14.28%">
+      <a href="https://github.com/Zenfas">
+        <img src="https://github.com/Zenfas.png?size=100" width="64" alt="Zenfas"/><br />
+        <sub><b>Zenfas</b></sub>
+      </a>
+    </td>
+    <td align="center" valign="top" width="14.28%">
+      <a href="https://github.com/huntersun">
+        <img src="https://github.com/huntersun.png?size=100" width="64" alt="huntersun"/><br />
+        <sub><b>huntersun</b></sub>
+      </a>
+    </td>
+    <td align="center" valign="top" width="14.28%">
+      <a href="https://github.com/haihv8x">
+        <img src="https://github.com/haihv8x.png?size=100" width="64" alt="haihv8x"/><br />
+        <sub><b>haihv8x</b></sub>
+      </a>
+    </td>
+    <td align="center" valign="top" width="14.28%">
+      <a href="https://github.com/os-hoanghv">
+        <img src="https://github.com/os-hoanghv.png?size=100" width="64" alt="os-hoanghv"/><br />
+        <sub><b>os-hoanghv</b></sub>
+      </a>
+    </td>
+    <td align="center" valign="top" width="14.28%">
+      <a href="https://github.com/Shzr0">
+        <img src="https://github.com/Shzr0.png?size=100" width="64" alt="Shzr0"/><br />
+        <sub><b>Shzr0</b></sub>
+      </a>
+    </td>
+    <td align="center" valign="top" width="14.28%">
+      <a href="https://github.com/nghiabros">
+        <img src="https://github.com/nghiabros.png?size=100" width="64" alt="nghiabros"/><br />
+        <sub><b>nghiabros</b></sub>
+      </a>
+    </td>
+    <td align="center" valign="top" width="14.28%">
+      <a href="https://github.com/huouhuou">
+        <img src="https://github.com/huouhuou.png?size=100" width="64" alt="huouhuou"/><br />
+        <sub><b>huouhuou</b></sub>
+      </a>
+    </td>
+  </tr>
+</table>
 
 ## License
 

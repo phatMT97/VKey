@@ -664,6 +664,11 @@ private:
     // Hook-thread owned. Focus polls can classify the same HWND every 200 ms;
     // only the first application may request the expensive TIP re-activation.
     TsfFocusActivationState tsfFocusActivationState_{};
+    // Hook-thread owned: tracks active window and focused control so spurious
+    // background WinEvents (e.g. FastStone Capture timer UI, issue #273)
+    // do not wipe live composition when typing in the same context.
+    std::uintptr_t lastAppliedHwnd_{0};
+    std::uintptr_t lastAppliedEffectiveFocusHwnd_{0};
     // vk of the key-down currently being processed (and possibly injecting for).
     // Stamped before ProcessKeyDown; read on the re-entrant `sending_` branch to
     // identify a physical key that leaked into the injection window as the
@@ -711,6 +716,11 @@ private:
     // the prior Flush outcome so we log only on state transitions instead
     // of every 200 ms retry (see design §5).
     bool lastFlushFailed_ = false;
+
+    // Worker-thread owned: tracks dispatched focus target to drop spurious
+    // WinEvents from background tool windows whose target hasn't changed (#273).
+    std::uintptr_t lastDispatchedHwnd_{0};
+    std::uintptr_t lastDispatchedTargetHwnd_{0};
 
     // Smart-switch off→on cross-thread handoff. ReloadFromToml runs on the
     // worker thread; it can't mutate appModeMap_ directly (hook-thread-owned).

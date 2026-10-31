@@ -142,9 +142,69 @@ TEST(TsfFocusActivationDecisionTest, RecycledHandleInNewProcessReactivates) {
     EXPECT_FALSE(ShouldActivateTsfProfileForFocus(state, true, 0x1234, 11));
 }
 
+TEST(FocusResetCompositionDecisionTest, ResetsWhenTopLevelWindowChanges) {
+    // Window changed from 0x1000 to 0x2000
+    EXPECT_TRUE(ShouldResetCompositionOnFocusChange(0x2000, 0x2000, 0x1000, 0x1000));
+}
+
+TEST(FocusResetCompositionDecisionTest, ResetsWhenFocusedChildControlChanges) {
+    // Top-level stays 0x1000, but child control changes from 0xAAA to 0xBBB
+    EXPECT_TRUE(ShouldResetCompositionOnFocusChange(0x1000, 0xBBB, 0x1000, 0xAAA));
+}
+
+TEST(FocusResetCompositionDecisionTest, ResetsWhenSwitchingBetweenChildAndRootWindow) {
+    // Top-level 0x1000, child 0xAAA -> root (effective 0x1000)
+    EXPECT_TRUE(ShouldResetCompositionOnFocusChange(0x1000, 0x1000, 0x1000, 0xAAA));
+    // Root (effective 0x1000) -> child 0xAAA
+    EXPECT_TRUE(ShouldResetCompositionOnFocusChange(0x1000, 0xAAA, 0x1000, 0x1000));
+}
+
+TEST(FocusResetCompositionDecisionTest, DoesNotResetWhenTargetIsUnchanged) {
+    // Exact same top-level and effective target (e.g. FastStone background timer)
+    EXPECT_FALSE(ShouldResetCompositionOnFocusChange(0x1000, 0x1000, 0x1000, 0x1000));
+    EXPECT_FALSE(ShouldResetCompositionOnFocusChange(0x1000, 0xAAA, 0x1000, 0xAAA));
+}
+
+TEST(SpuriousBackgroundFocusEventTest, IdentifiesSpuriousBackgroundTrigger) {
+    // FastStone timer trigger 0x9999 fires, foreground is 0x1000, target 0x1000
+    // Previously dispatched: hwnd 0x1000, target 0x1000
+    EXPECT_TRUE(IsSpuriousBackgroundFocusEvent(
+        0x9999, /*classifiedHwnd=*/0x1000, /*currentTarget=*/0x1000,
+        /*lastDispatchedHwnd=*/0x1000, /*lastDispatchedTarget=*/0x1000));
+
+    // Stale trigger with child target unchanged
+    EXPECT_TRUE(IsSpuriousBackgroundFocusEvent(
+        0x9999, /*classifiedHwnd=*/0x1000, /*currentTarget=*/0xAAA,
+        /*lastDispatchedHwnd=*/0x1000, /*lastDispatchedTarget=*/0xAAA));
+}
+
+TEST(SpuriousBackgroundFocusEventTest, DoesNotDropWhenTargetActuallyChanged) {
+    // Trigger is different, but child control actually changed (0xAAA -> 0xBBB)
+    EXPECT_FALSE(IsSpuriousBackgroundFocusEvent(
+        0x9999, /*classifiedHwnd=*/0x1000, /*currentTarget=*/0xBBB,
+        /*lastDispatchedHwnd=*/0x1000, /*lastDispatchedTarget=*/0xAAA));
+
+    // Trigger is different, and top-level actually changed (0x1000 -> 0x2000)
+    EXPECT_FALSE(IsSpuriousBackgroundFocusEvent(
+        0x9999, /*classifiedHwnd=*/0x2000, /*currentTarget=*/0x2000,
+        /*lastDispatchedHwnd=*/0x1000, /*lastDispatchedTarget=*/0x1000));
+}
+
+TEST(SpuriousBackgroundFocusEventTest, DoesNotDropDirectFocusOrNullTrigger) {
+    // Direct focus (trigger == classifiedHwnd)
+    EXPECT_FALSE(IsSpuriousBackgroundFocusEvent(
+        0x1000, 0x1000, 0x1000, 0x1000, 0x1000));
+
+    // Null trigger (e.g. MINIMIZEEND / poll)
+    EXPECT_FALSE(IsSpuriousBackgroundFocusEvent(
+        0, 0x1000, 0x1000, 0x1000, 0x1000));
+}
+
 static_assert(noexcept(DecideFocusApply(FocusApplyInputs{})));
 static_assert(noexcept(ShouldActivateTsfProfileForFocus(
     std::declval<TsfFocusActivationState&>(), false, 0, 0)));
+static_assert(noexcept(ShouldResetCompositionOnFocusChange(0, 0, 0, 0)));
+static_assert(noexcept(IsSpuriousBackgroundFocusEvent(0, 0, 0, 0, 0)));
 // The hook hot path cost of the epoch is exactly this property. A wall-clock
 // benchmark here measured ~1 ns against a 50 ns bar — it could never fail for a
 // real regression, only for a loaded CI box, so the static_assert is the check.

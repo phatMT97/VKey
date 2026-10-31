@@ -74,4 +74,33 @@ DecideFocusApply(const FocusApplyInputs& in) noexcept {
     return shouldActivate;
 }
 
+/// Pure decision for Tier 1 (Issue #273): checks whether the active typing target actually changed.
+/// Returns true if either the top-level window changed OR the effective focused
+/// control changed. If neither changed (e.g. spurious background UI updates),
+/// composition must NOT be reset.
+[[nodiscard]] constexpr bool ShouldResetCompositionOnFocusChange(
+        std::uintptr_t currentHwndOpaque,
+        std::uintptr_t currentEffectiveFocusOpaque,
+        std::uintptr_t lastAppliedHwndOpaque,
+        std::uintptr_t lastAppliedEffectiveFocusOpaque) noexcept {
+    return (currentHwndOpaque != lastAppliedHwndOpaque) ||
+           (currentEffectiveFocusOpaque != lastAppliedEffectiveFocusOpaque);
+}
+
+/// Pure decision for Tier 2 (Issue #273): filters out redundant background WinEvents.
+/// When an event trigger comes from a helper/tool window (triggerHwnd != activeHwnd)
+/// but the foreground window and effective focused control have not changed,
+/// the event is a spurious background update (e.g. FastStone Capture timer UI).
+[[nodiscard]] constexpr bool IsSpuriousBackgroundFocusEvent(
+        std::uintptr_t triggerHwndOpaque,
+        std::uintptr_t classifiedHwndOpaque,
+        std::uintptr_t currentTargetOpaque,
+        std::uintptr_t lastDispatchedHwndOpaque,
+        std::uintptr_t lastDispatchedTargetOpaque) noexcept {
+    return (triggerHwndOpaque != 0) &&
+           (triggerHwndOpaque != classifiedHwndOpaque) &&
+           (classifiedHwndOpaque == lastDispatchedHwndOpaque) &&
+           (currentTargetOpaque == lastDispatchedTargetOpaque);
+}
+
 }  // namespace NextKey

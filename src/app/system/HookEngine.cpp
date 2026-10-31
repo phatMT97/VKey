@@ -260,6 +260,10 @@ bool HookEngine::Start(HINSTANCE hInstance, const TypingConfig& config,
     ApplyHotkeyRegistry(ConfigManager::MigrateLegacyHotkeysIfNeeded(
         ConfigManager::GetConfigPath()));
     autoCapState_ = AutoCapState::Idle;
+    lastAppliedHwnd_ = 0;
+    lastAppliedEffectiveFocusHwnd_ = 0;
+    lastDispatchedHwnd_ = 0;
+    lastDispatchedTargetHwnd_ = 0;
 #ifdef VKEY_USE_RUST_ENGINE
     if (config.spellSuggestEnabled) {
         auto loaded = RustInputEngine::LoadUserDictionary(ConfigManager::GetConfigPath());
@@ -478,6 +482,10 @@ void HookEngine::Stop() {
         s_instance = nullptr;
     }
     focus_.ResetLayoutState();
+    lastAppliedHwnd_ = 0;
+    lastAppliedEffectiveFocusHwnd_ = 0;
+    lastDispatchedHwnd_ = 0;
+    lastDispatchedTargetHwnd_ = 0;
     NEXTKEY_LOG(L"HookEngine stopped");
 }
 
@@ -3462,6 +3470,28 @@ void HookEngine::OnFocusChangedSyncOnWorker(
 
     if (!classified.hwndOpaque) return;  // sentinel: nothing to apply
 
+    // Tier 2 spurious event filter (Issue #273):
+    // If request.triggerHwnd is a stale trigger from a background helper/tool window
+    // (such as FastStone Capture's recorder toolbar timer updating every 1s) and the
+    // live foreground window AND focused child target have not changed at all,
+    // drop the event on the worker without posting to the hook mailbox.
+    const std::uintptr_t currentTarget =
+        (classified.focusedChildHwndOpaque != 0)
+            ? classified.focusedChildHwndOpaque
+            : classified.hwndOpaque;
+    const std::uintptr_t triggerHwndOpaque =
+        reinterpret_cast<std::uintptr_t>(request.triggerHwnd);
+    if (IsSpuriousBackgroundFocusEvent(
+            triggerHwndOpaque, classified.hwndOpaque, currentTarget,
+            lastDispatchedHwnd_, lastDispatchedTargetHwnd_)) {
+        FOCUS_LOG(L"  Worker: drop spurious focus event from %p (target %p unchanged)",
+                  request.triggerHwnd, reinterpret_cast<HWND>(currentTarget));
+        return;
+    }
+
+    lastDispatchedHwnd_ = classified.hwndOpaque;
+    lastDispatchedTargetHwnd_ = currentTarget;
+
     OutputDispatcher::PrepareFocusOutput(classified);
 
     // Process creation time is a cold Win32 query and therefore belongs on
@@ -4452,10 +4482,23 @@ void HookEngine::ApplyFocusOnHookThread(std::shared_ptr<const FocusClassificatio
     const std::uintptr_t currentFocusedChildOpaque =
         reinterpret_cast<std::uintptr_t>(currentFocusedChild);
 
-    // Reset composition + per-word state. These were the Rule 11.3-violating
-    // writes from main pre-Phase-2b.
-    ResetComposition();
-    tempEngineOff_ = false;
+    // Reset composition + per-word state only when the active input target actually changes.
+    // Spurious focus events (e.g. background UI timer in FastStone Capture, issue #273)
+    // for the same window and control must not wipe live composition mid-word.
+    const std::uintptr_t childForFocus = (currentFocusedChildOpaque != 0)
+        ? currentFocusedChildOpaque
+        : cls->focusedChildHwndOpaque;
+    const std::uintptr_t effectiveFocusHwnd =
+        (childForFocus != 0) ? childForFocus : cls->hwndOpaque;
+
+    if (ShouldResetCompositionOnFocusChange(
+            cls->hwndOpaque, effectiveFocusHwnd,
+            lastAppliedHwnd_, lastAppliedEffectiveFocusHwnd_)) {
+        ResetComposition();
+        tempEngineOff_ = false;
+        lastAppliedHwnd_ = cls->hwndOpaque;
+        lastAppliedEffectiveFocusHwnd_ = effectiveFocusHwnd;
+    }
 
     // Skipped probe ⇒ permissive (see needsChildProbe above); never latch a
     // suppression we derived from an HWND we deliberately did not read.
