@@ -21,6 +21,7 @@
 #include "core/CommitUndoArmDecision.h"
 #include "core/DigitLedWordDecision.h"
 #include "core/DorionHookReclaimSequence.h"
+#include "core/ExternalInjectedKeyDecision.h"
 #include "core/FocusApplyDecision.h"
 #include "core/LeakedKeyDuringSendDecision.h"
 #include "core/MacroCase.h"
@@ -986,6 +987,25 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
         if (nCode == HC_ACTION && self) {
             const bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
             const bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
+
+            // Issue #274: Bypass synthetic/injected events from other software
+            // (PhraseExpress, AutoHotkey, mouse/keyboard macro software).
+            // External events carry LLKHF_INJECTED (0x10) or LLKHF_LOWER_IL_INJECTED (0x02)
+            // without VKEY_EXTRA_INFO. On key-down, reset any active composition so stale
+            // buffer does not corrupt subsequent typing. Always pass through untouched.
+            const bool isExternalInjected =
+                IsExternalInjectedKey(pKey->flags, pKey->dwExtraInfo, VKEY_EXTRA_INFO);
+            if (isExternalInjected) {
+                if (ShouldResetCompositionOnInjected(
+                        isExternalInjected, isDown,
+                        self->engine_->Count(),
+                        !self->previousComposition_.empty())) {
+                    HOOK_LOG(L"  EXTERNAL INJECTED (vk=0x%02X flags=0x%08X) -> ResetComposition",
+                             pKey->vkCode, pKey->flags);
+                    self->ResetComposition();
+                }
+                return CallNextHookEx(nullptr, nCode, wParam, lParam);
+            }
 
             // Application hotkeys share this sole dedicated keyboard hook.
             // Match every real DOWN/UP event after VKey-tagged synthetic

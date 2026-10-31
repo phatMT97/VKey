@@ -974,6 +974,7 @@ set(NEXTKEY_TEST_SOURCES
     tests/TsfPromotionDecisionTest.cpp
     tests/AutoCapStateTransitionTest.cpp
     tests/CjkSwitchDecisionTest.cpp
+    tests/ExternalInjectedKeyDecisionTest.cpp
     tests/LeakedKeyDuringSendDecisionTest.cpp
     tests/PerAppModeDecisionTest.cpp
     tests/WebView2CacheDecisionTest.cpp
