@@ -543,6 +543,7 @@ add_executable(VKeyApp WIN32
     src/app/system/FloatingIcon.cpp
     src/app/system/HookEngine.h
     src/app/system/HookEngine.cpp
+    src/app/system/HookEngineCommitUndo.cpp
     src/app/system/HookLifecycle.h
     src/app/system/HookLifecycle.cpp
     src/app/system/FocusOwner.h
@@ -668,6 +669,7 @@ if(VKEY_LITE_MODE AND WIN32)
         src/app/system/FloatingIcon.cpp
         src/app/system/HookEngine.h
         src/app/system/HookEngine.cpp
+        src/app/system/HookEngineCommitUndo.cpp
         src/app/system/HookLifecycle.h
         src/app/system/HookLifecycle.cpp
         src/app/system/FocusOwner.h

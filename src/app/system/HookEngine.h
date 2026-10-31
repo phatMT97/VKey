@@ -85,11 +85,10 @@ public:
     void ExecuteReplace(std::wstring_view newText,
                         std::uint16_t reinjectVk) override;
 
-    // Pipeline::ICommitUndoExecutor — Wave 3 adapter for CommitUndoFeature.
-    // Thin wrapper around the existing HandleCommitUndoFsm FSM body. Reads
-    // vnMode internally from vietnameseMode_ atomic. Maps KeyOutcome →
-    // CommitUndoOutcome at the boundary. Wave N+ will lift the FSM body
-    // into CommitUndoFeature::Try for true single-owner state.
+    // Pipeline::ICommitUndoExecutor — Wave 3 adapter for CommitUndoFeature
+    // (implemented in HookEngineCommitUndo.cpp). Thin wrapper around the
+    // HandleCommitUndoFsm body. Reads vnMode internally from vietnameseMode_ atomic.
+    // Maps KeyOutcome → CommitUndoOutcome at the boundary.
     [[nodiscard]] NextKey::Pipeline::CommitUndoOutcome HandleCommitUndo(
         std::uint16_t vkCode,
         bool shift, bool capsLock, bool ctrl, bool alt, bool win) override;
@@ -346,10 +345,10 @@ private:
     // set otherKeyPressed_ themselves before returning Pass).
     [[nodiscard]] KeyOutcome RunTopGuards(DWORD vkCode);
 
-    // H1a (extracted from ProcessKeyDown step 2d): commit-undo state machine
+    // H1a (extracted to HookEngineCommitUndo.cpp): commit-undo state machine
     // (Idle/Ready/Primed) — handles backspace-into-committed-word replay.
-    // Mutates commitUndoState_/pendingTriggerCount_/macroCrossCommit_/rawMacroBuffer_
-    // and may call HandleAlphaKey/HandleVniDigitKey/HandleBackspace/InjectKey.
+    // Mutates commitState_/macroCrossCommit_/rawMacroBuffer_ and may call
+    // HandleAlphaKey/HandleVniDigitKey/HandleBackspace/InjectKey.
     [[nodiscard]] KeyOutcome HandleCommitUndoFsm(DWORD vkCode, bool vnMode,
                                                  bool shift, bool capsLock,
                                                  bool ctrl, bool alt, bool win);
@@ -387,8 +386,9 @@ private:
     // correction (IsVerbatimCommitTrigger); raw restore still applies.
     bool CommitComposition(bool verbatim = false);
     void ResetComposition();
-    void CancelCommitUndo();   // commitUndoState_ = Idle + commitStack_.clear()
-    void SetCommitUndoReady(); // commitUndoState_ = Ready + timestamp
+    // Commit-undo mutators (HookEngineCommitUndo.cpp)
+    void CancelCommitUndo();   // commitState_.Cancel()
+    void SetCommitUndoReady(); // commitState_.SetReady() + pending trigger inherit
 
     // Output — universal SendInput with KEYEVENTF_UNICODE. Wave 3 PR 3.3
     // shrank the body to a thin shim: prefix-diff + code-table encoding +
@@ -413,8 +413,8 @@ private:
     // Modifier state tracking (used by double-Alt and layout change detection)
     void TrackModifier(DWORD vkCode, bool isDown);
 
-    // Restore a committed word for another edit. Backspace prefers the visible
-    // glyph state; tone/modifier keys preserve raw replay provenance.
+    // Restore a committed word for another edit (HookEngineCommitUndo.cpp). Backspace
+    // prefers the visible glyph state; tone/modifier keys preserve raw replay provenance.
     [[nodiscard]] bool ReplayCommittedChars(bool preferVisibleText = false);
 
     // Commit trigger check
