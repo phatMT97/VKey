@@ -550,7 +550,7 @@ if [ "$dorion_request_count" -ne 1 ]; then
     echo "  FAIL: expected exactly 1 Dorion keyboard-reclaim request, found $dorion_request_count"
     echo "$dorion_request_sites" | sed '/^$/d; s/^/    /'
     errors=$((errors + 1))
-elif ! echo "$dorion_request_sites" | grep -q '^src/app/system/HookEngine.cpp:'; then
+elif ! echo "$dorion_request_sites" | grep -qE '^src/app/system/HookEngine(Focus)?\.cpp:'; then
     echo "  FAIL: Dorion keyboard-reclaim request must be owned by HookEngine"
     echo "$dorion_request_sites" | sed 's/^/    /'
     errors=$((errors + 1))

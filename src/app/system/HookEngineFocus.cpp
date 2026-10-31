@@ -5,7 +5,9 @@
 
 #include "CommitState.h"
 #include "FocusOwner.h"
+#include "HotkeyManager.h"
 #include "OutputDispatcher.h"
+#include "helpers/AppHelpers.h"
 #include "core/AutoCapDecision.h"
 #include "core/FocusApplyDecision.h"
 #include "core/Logger.h"
