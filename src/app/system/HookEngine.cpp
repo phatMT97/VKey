@@ -3504,8 +3504,8 @@ void HookEngine::OnFocusChangedSyncOnWorker(
     if (IsSpuriousBackgroundFocusEvent(
             triggerHwndOpaque, classified.hwndOpaque, currentTarget,
             lastDispatchedHwnd_, lastDispatchedTargetHwnd_)) {
-        FOCUS_LOG(L"  Worker: drop spurious focus event from %p (target %p unchanged)",
-                  request.triggerHwnd, reinterpret_cast<HWND>(currentTarget));
+        HOOK_LOG(L"  Worker: drop spurious focus event from %p (target %p unchanged)",
+                 request.triggerHwnd, reinterpret_cast<HWND>(currentTarget));
         return;
     }
 
