@@ -846,6 +846,7 @@ private:
     TickRetuneFn tickRetuneFn_;
 
     void DrainHookCommands();                                 // hook thread only
+    // Focus routing and application (HookEngineFocus.cpp)
     void RouteFocusOnHookThread(std::shared_ptr<const FocusClassification> cls);
     void TryApplyDeferredFocusOnHookThread();
     void ReconcileModifierStateOnHookThread() noexcept;
