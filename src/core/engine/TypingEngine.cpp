@@ -538,6 +538,25 @@ void TypingEngine::FinalizeRegularChar() {
         states_[0].mod = Modifier::None;
         states_[0].synthetic = false;
     }
+    // Revert premature tone on English "use-" prefix:
+    // When typing "user", "u" + "s" produces "ú". When followed by "e",
+    // the syllable "úe" is impossible in Vietnamese. Restore literal "use"
+    // and flag as HardEnglish so subsequent keys (r, s in "users") stay literal.
+    if (IsTelexMode() &&
+        engProt_.bias != LanguageBias::HardEnglish &&
+        states_.size() == 2 &&
+        towlower(states_[0].base) == L'u' && states_[0].tone == Tone::Acute && states_[0].mod == Modifier::None &&
+        towlower(states_[1].base) == L'e' &&
+        rawInput_.size() >= 3 &&
+        towlower(rawInput_[0]) == L'u' && towlower(rawInput_[1]) == L's' && towlower(rawInput_[2]) == L'e') {
+        states_[0].tone = Tone::None;
+        CharState sState;
+        sState.base = L's';
+        sState.isUpper = (rawInput_[1] >= L'A' && rawInput_[1] <= L'Z');
+        sState.rawIdx = 1;
+        states_.insert(states_.begin() + 1, sState);
+        engProt_.bias = LanguageBias::HardEnglish;
+    }
     if (IsTelexMode()) CheckZwjfInitialBias(states_.data(), states_.size(), config_, engProt_);
 }
 

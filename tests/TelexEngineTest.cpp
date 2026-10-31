@@ -5009,6 +5009,85 @@ TEST_F(EnglishProtectionTest, EnglishBlock_Up_ToneStillWorks) {
     EXPECT_EQ(engine_->Peek(), L"úp");
 }
 
+TEST_F(EnglishProtectionTest, EnglishBlock_PerPrefix_Perfect) {
+    TypeString(*engine_, L"perfect");
+    EXPECT_EQ(engine_->Peek(), L"perfect");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_PerPrefix_Person) {
+    TypeString(*engine_, L"person");
+    EXPECT_EQ(engine_->Peek(), L"person");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_PerPrefix_Percent) {
+    TypeString(*engine_, L"percent");
+    EXPECT_EQ(engine_->Peek(), L"percent");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_PerPrefix_Perform) {
+    TypeString(*engine_, L"perform");
+    EXPECT_EQ(engine_->Peek(), L"perform");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_PerPrefix_Perhaps) {
+    TypeString(*engine_, L"perhaps");
+    EXPECT_EQ(engine_->Peek(), L"perhaps");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_PerPrefix_Period) {
+    TypeString(*engine_, L"period");
+    EXPECT_EQ(engine_->Peek(), L"period");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_UsePrefix_User) {
+    TypeString(*engine_, L"user");
+    EXPECT_EQ(engine_->Peek(), L"user");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_UsePrefix_Users) {
+    TypeString(*engine_, L"users");
+    EXPECT_EQ(engine_->Peek(), L"users");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_UsePrefix_Useful) {
+    TypeString(*engine_, L"useful");
+    EXPECT_EQ(engine_->Peek(), L"useful");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_UsePrefix_Used) {
+    TypeString(*engine_, L"used");
+    EXPECT_EQ(engine_->Peek(), L"used");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_UsePrefix_TitleCase) {
+    TypeString(*engine_, L"Users");
+    EXPECT_EQ(engine_->Peek(), L"Users");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_UsePrefix_Backspace) {
+    TypeString(*engine_, L"use");
+    EXPECT_EQ(engine_->Peek(), L"use");
+    engine_->Backspace();
+    EXPECT_EQ(engine_->Peek(), L"us");
+}
+
+TEST_F(EnglishProtectionTest, EnglishBlock_Vietnamese_U_StillProducesTone) {
+    TypeString(*engine_, L"us");
+    EXPECT_EQ(engine_->Peek(), L"ú");
+
+    engine_->Reset();
+    TypeString(*engine_, L"usi");
+    EXPECT_EQ(engine_->Peek(), L"úi");
+
+    engine_->Reset();
+    TypeString(*engine_, L"usm");
+    EXPECT_EQ(engine_->Peek(), L"úm");
+
+    engine_->Reset();
+    TypeString(*engine_, L"usng");
+    EXPECT_EQ(engine_->Peek(), L"úng");
+}
+
 TEST_F(EnglishProtectionTest, EnglishBlock_SpellCheckOff_NoBlock) {
     // With spell check OFF, English block should NOT activate
     TypingConfig offConfig;
