@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /* Bump when the ABI changes; check against vkey_engine_abi_version(). */
-#define VKEY_ENGINE_ABI_VERSION 9u
+#define VKEY_ENGINE_ABI_VERSION 10u
 
 /* ABI v6 runtime-artifact identity status. */
 #define VKEY_ENGINE_RUNTIME_OK                   0u
@@ -62,6 +62,9 @@ void vkey_engine_destroy(VKeyEngine *engine);
 
 /* Clear the active composition. */
 void vkey_engine_reset(VKeyEngine *engine);
+
+/* ABI v10: clear cached inter-word context used for N-gram reranking. */
+void vkey_engine_clear_context(VKeyEngine *engine);
 
 /* Push one decoded key (a Unicode scalar value, e.g. an ASCII letter). */
 void vkey_engine_push_char(VKeyEngine *engine, uint32_t codepoint);

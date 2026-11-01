@@ -1347,6 +1347,9 @@ bool HookEngine::ProcessKeyDown(DWORD vkCode, DWORD /*scanCode*/, DWORD /*flags*
         commitState_.IsIdle() &&
         !macroUndoState_.active &&
         !(macroOn && macroEng)) {
+        if (IsCaretNavigationKey(vkCode) && engine_) {
+            engine_->ClearContext();
+        }
         return false;
     }
 
@@ -1670,6 +1673,9 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
             digitLedWord_ = false;
             HOOK_LOG(L"  tempEngineOff: reset on backspace (engine empty)");
         }
+        if (IsCaretNavigationKey(vkCode) && engine_) {
+            engine_->ClearContext();
+        }
         HOOK_LOG(L"  skip: tempEngineOff_ active=%d", tempEngineOff_ ? 1 : 0);
         return KeyOutcome::Pass;  // Pass through as English
     }
@@ -1820,6 +1826,8 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
         if (engine_->Count() > 0) {
             HOOK_LOG(L"  VK_ESCAPE with active composition → ResetComposition (verbatim preserve)");
             ResetComposition();
+        } else if (engine_) {
+            engine_->ClearContext();
         }
         if (pending > 0) {
             InjectKey(vkCode);
@@ -1859,6 +1867,10 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
 
         bool restored = CommitComposition(
             Macro::IsVerbatimCommitTrigger(VkToMacroChar(vkCode)));
+
+        if (IsCaretNavigationKey(vkCode) && engine_) {
+            engine_->ClearContext();
+        }
 
         if (!savedMacroBuffer.empty()) {
             rawMacroBuffer_ = std::move(savedMacroBuffer);
@@ -1946,6 +1958,10 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
             InjectKey(vkCode);
             return KeyOutcome::Eat;
         }
+    }
+
+    if (IsCaretNavigationKey(vkCode) && engine_) {
+        engine_->ClearContext();
     }
 
     // 10. BS with engine empty but synthetic events pending: re-inject to preserve ordering.
@@ -2426,6 +2442,9 @@ bool HookEngine::CommitComposition(bool verbatim) {
 void HookEngine::ResetComposition() {
     VKEY_ASSERT_HOOK_THREAD();
     HOOK_LOG(L"  ResetComposition (count=%zu, prev='%s')", engine_->Count(), previousComposition_.c_str());
+    if (engine_) {
+        engine_->ClearContext();
+    }
     // Secure-erase keystroke history before releasing the buffer to prevent
     // heap forensics from recovering typed content (including passwords).
     SecureZeroMemory(commitState_.History().data(), commitState_.History().size() * sizeof(wchar_t));

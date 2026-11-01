@@ -729,7 +729,10 @@ bool EngineController::CommitRawAndEnd(ITfContext* pContext) {
     RequestEditSession(pContext, pSession);
     pSession->Release();
 
-    engine_->Reset();
+    if (engine_) {
+        engine_->Reset();
+        engine_->ClearContext();
+    }
     digitLedWord_ = false;
     ClearMacroTracking();
 
@@ -747,7 +750,10 @@ void EngineController::EndCompositionVerbatim(ITfContext* pContext) {
     RequestEditSession(pContext, pSession);
     pSession->Release();
 
-    engine_->Reset();
+    if (engine_) {
+        engine_->Reset();
+        engine_->ClearContext();
+    }
     digitLedWord_ = false;
     ClearMacroTracking();
     ResetCommitUndo();
@@ -772,7 +778,10 @@ bool EngineController::HasNonEmptySelection(ITfContext* pContext) {
 
 void EngineController::Reset() {
     ClearMacroTracking();
-    engine_->Reset();
+    if (engine_) {
+        engine_->Reset();
+        engine_->ClearContext();
+    }
     compositionMgr_.TerminateComposition();
     digitLedWord_ = false;
     TryPromotePendingConfig();

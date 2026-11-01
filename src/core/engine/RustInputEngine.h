@@ -67,6 +67,7 @@ public:
     [[nodiscard]] const std::wstring& Peek() const override { return peek_; }
     [[nodiscard]] std::wstring Commit() override;
     void Reset() override;
+    void ClearContext() noexcept override;
     [[nodiscard]] size_t Count() const override { return count_; }
     [[nodiscard]] bool HasActiveQuickConsonant() const override;
     [[nodiscard]] bool SeedFromText(const std::wstring& text) override;

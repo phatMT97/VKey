@@ -41,6 +41,8 @@ public:
     /// Reset engine state (clear composition)
     virtual void Reset() = 0;
 
+    virtual void ClearContext() noexcept {}
+
     /// Get number of characters in current composition
     [[nodiscard]] virtual size_t Count() const = 0;
 

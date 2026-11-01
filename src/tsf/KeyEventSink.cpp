@@ -14,6 +14,7 @@
 #include "Define.h"
 #include "Globals.h"
 #include "core/CrashLog.h"
+#include "core/CommitUndoArmDecision.h"
 #include "core/MacroCase.h"
 #include "core/TsfEditDecision.h"
 
@@ -276,6 +277,7 @@ IFACEMETHODIMP KeyEventSink::OnSetFocus(BOOL fForeground) {
         TSF_LOG(L"OnSetFocus: foreground");
         // Re-read SharedState on focus to pick up ENGINE_ENABLED/VIETNAMESE_MODE changes
         if (pEngineController_) {
+            pEngineController_->ClearContext();
             pEngineController_->CheckConfigEvent(/*allowMacroDiskRead=*/true);
             pEngineController_->RefreshFlags();
             RefreshQuickConvertPreservedKey();
@@ -290,6 +292,7 @@ IFACEMETHODIMP KeyEventSink::OnSetFocus(BOOL fForeground) {
     } else {
         TSF_LOG(L"OnSetFocus: background");
         if (pEngineController_) {
+            pEngineController_->ClearContext();
             PublishQuickConvertCapability();
             pEngineController_->SetTsfTipActive(false);
             pEngineController_->ClearMacroTracking();
@@ -438,6 +441,8 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
         }
         if (!restored && pEngineController_->HasEngineBuffer()) {
             pEngineController_->EndCompositionVerbatim(pContext);
+        } else if (!restored) {
+            pEngineController_->ClearContext();
         }
         *pfEaten = restored ? TRUE : FALSE;
         return S_OK;
@@ -600,8 +605,15 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
     // they don't reach here. Bare Shift/CapsLock is excluded — see IsBareModifierKey.
     if (!wantKey && !IsBareModifierKey(vk) && pEngineController_->HasEngineBuffer()) {
         pEngineController_->Commit(pContext);
+        if (IsCaretNavigationKey(vk)) {
+            pEngineController_->ClearContext();
+        }
         *pfEaten = FALSE;
         return S_OK;
+    }
+
+    if (!wantKey && IsCaretNavigationKey(vk)) {
+        pEngineController_->ClearContext();
     }
 
     *pfEaten = wantKey ? TRUE : FALSE;
@@ -816,6 +828,8 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
         }
         if (!restored && pEngineController_->HasEngineBuffer()) {
             pEngineController_->EndCompositionVerbatim(pContext);
+        } else if (!restored) {
+            pEngineController_->ClearContext();
         }
         *pfEaten = restored ? TRUE : FALSE;
         return S_OK;
@@ -901,6 +915,9 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
     // Bare Shift/CapsLock is excluded — see IsBareModifierKey.
     if (!wantKey && !IsBareModifierKey(vk) && pEngineController_->HasEngineBuffer()) {
         pEngineController_->Commit(pContext);
+        if (IsCaretNavigationKey(vk)) {
+            pEngineController_->ClearContext();
+        }
         // Reaching here with a live buffer means the host skipped OnTestKeyDown
         // (Chromium family) — in every other host the test phase already
         // committed, so the buffer is empty and this branch never runs there.
@@ -934,6 +951,9 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
     }
 
     if (!wantKey) {
+        if (IsCaretNavigationKey(vk)) {
+            pEngineController_->ClearContext();
+        }
         *pfEaten = FALSE;
         return S_OK;
     }

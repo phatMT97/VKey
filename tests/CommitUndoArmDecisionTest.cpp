@@ -11,6 +11,7 @@
 
 using NextKey::CommitUndoArm;
 using NextKey::DecideCommitUndoArm;
+using NextKey::IsCaretNavigationKey;
 
 namespace {
 
@@ -180,6 +181,23 @@ TEST(CommitUndoArmDecisionTest, HostReplacedWord_OtherPunctuation_StaysRevivable
     EXPECT_FALSE(IsHostReplacedWord(L':', L' '));   // ":chào "
     EXPECT_FALSE(IsHostReplacedWord(L'\0', L':'));  // "chào:"
     EXPECT_FALSE(IsHostReplacedWord(L'\0', L'\0'));
+}
+
+TEST(CommitUndoArmDecisionTest, CaretNavigationKeysClassification) {
+    EXPECT_TRUE(IsCaretNavigationKey(VK_LEFT_));
+    EXPECT_TRUE(IsCaretNavigationKey(VK_UP_));
+    EXPECT_TRUE(IsCaretNavigationKey(VK_RIGHT_));
+    EXPECT_TRUE(IsCaretNavigationKey(VK_DOWN_));
+    EXPECT_TRUE(IsCaretNavigationKey(VK_HOME_));
+    EXPECT_TRUE(IsCaretNavigationKey(VK_END_));
+    EXPECT_TRUE(IsCaretNavigationKey(VK_PRIOR_));
+    EXPECT_TRUE(IsCaretNavigationKey(VK_NEXT_));
+
+    EXPECT_FALSE(IsCaretNavigationKey(VK_RETURN_));
+    EXPECT_FALSE(IsCaretNavigationKey(VK_SPACE_));
+    EXPECT_FALSE(IsCaretNavigationKey(VK_TAB_));
+    EXPECT_FALSE(IsCaretNavigationKey(VK_ESCAPE_));
+    EXPECT_FALSE(IsCaretNavigationKey('A'));
 }
 
 }  // namespace

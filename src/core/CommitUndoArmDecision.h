@@ -62,6 +62,18 @@ enum class CommitUndoArm : uint8_t {
     return vkCode == kVkReturn || vkCode == kVkTab;
 }
 
+[[nodiscard]] constexpr bool IsCaretNavigationKey(uint32_t vkCode) noexcept {
+    constexpr uint32_t kVkPrior  = 0x21;  // Page Up
+    constexpr uint32_t kVkNext   = 0x22;  // Page Down
+    constexpr uint32_t kVkEnd    = 0x23;
+    constexpr uint32_t kVkHome   = 0x24;
+    constexpr uint32_t kVkLeft   = 0x25;
+    constexpr uint32_t kVkDown   = 0x28;  // VK_LEFT..VK_DOWN occupy 0x25..0x28
+    return (vkCode >= kVkLeft && vkCode <= kVkDown) ||
+           vkCode == kVkHome || vkCode == kVkEnd ||
+           vkCode == kVkPrior || vkCode == kVkNext;
+}
+
 /// `vkCode` is the Win32 virtual-key of the commit trigger that just fired.
 [[nodiscard]] constexpr CommitUndoArm DecideCommitUndoArm(uint32_t vkCode) noexcept {
     constexpr uint32_t kVkEscape = 0x1B;

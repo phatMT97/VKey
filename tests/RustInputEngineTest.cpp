@@ -23,6 +23,7 @@
 
 #include "core/engine/CommittedTextRestore.h"
 #include "core/engine/RustInputEngine.h"
+#include "core/engine/TypingEngine.h"
 
 namespace NextKey {
 namespace {
@@ -1060,6 +1061,31 @@ TEST_F(RustInputEngineTest, ContextReranking_Noi_Ddieu) {
     EXPECT_EQ(engine.Peek(), L"\u0111ieu");
     EXPECT_EQ(engine.Commit(), L"\u0111i\u00eau");
     EXPECT_TRUE(engine.LastCommitWasCorrected());
+}
+
+TEST_F(RustInputEngineTest, ClearContextCallableAndTypingEngineNoOpHarmless) {
+    TypingConfig config;
+    config.inputMethod = InputMethod::Telex;
+
+    TypingEngine cppEngine(config);
+    IInputEngine* cppInterface = &cppEngine;
+    cppInterface->PushChar(L'a');
+    cppInterface->PushChar(L'a');
+    EXPECT_EQ(cppInterface->Peek(), L"â");
+    cppInterface->ClearContext();
+    EXPECT_EQ(cppInterface->Peek(), L"â");
+    EXPECT_EQ(cppInterface->Commit(), L"â");
+    cppInterface->ClearContext();
+
+    RustInputEngine rustEngine(config);
+    IInputEngine* rustInterface = &rustEngine;
+    rustInterface->PushChar(L'a');
+    rustInterface->PushChar(L'a');
+    EXPECT_EQ(rustInterface->Peek(), L"â");
+    rustInterface->ClearContext();
+    EXPECT_EQ(rustInterface->Peek(), L"â");
+    EXPECT_EQ(rustInterface->Commit(), L"â");
+    rustInterface->ClearContext();
 }
 
 #endif

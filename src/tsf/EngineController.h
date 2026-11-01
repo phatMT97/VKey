@@ -133,6 +133,12 @@ public:
     /// Reset engine state
     void Reset();
 
+    void ClearContext() noexcept {
+        if (engine_) {
+            engine_->ClearContext();
+        }
+    }
+
     /// Check if there's pending composition (for Ctrl shortcuts)
     bool HasComposition() const { return engine_->Count() > 0; }
 
