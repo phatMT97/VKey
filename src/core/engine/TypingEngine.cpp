@@ -542,17 +542,22 @@ void TypingEngine::FinalizeRegularChar() {
     // When typing "user", "u" + "s" produces "ú". When followed by "e",
     // the syllable "úe" is impossible in Vietnamese. Restore literal "use"
     // and flag as HardEnglish so subsequent keys (r, s in "users") stay literal.
-    if (IsTelexMode() &&
+    if (config_.spellCheckEnabled && !config_.allowEnglishBypass &&
+        IsTelexMode() &&
         engProt_.bias != LanguageBias::HardEnglish &&
         states_.size() == 2 &&
-        towlower(states_[0].base) == L'u' && states_[0].tone == Tone::Acute && states_[0].mod == Modifier::None &&
-        towlower(states_[1].base) == L'e' &&
+        towlower(states_[0].base) == L'u' && states_[0].mod == Modifier::None &&
+        towlower(states_[1].base) == L'e' && states_[1].mod == Modifier::None &&
+        (states_[0].tone == Tone::Acute || states_[1].tone == Tone::Acute) &&
         rawInput_.size() >= 3 &&
         towlower(rawInput_[0]) == L'u' && towlower(rawInput_[1]) == L's' && towlower(rawInput_[2]) == L'e') {
         states_[0].tone = Tone::None;
+        states_[1].tone = Tone::None;
+        states_[0].toneRawIdx = SIZE_MAX;
+        states_[1].toneRawIdx = SIZE_MAX;
         CharState sState;
         sState.base = L's';
-        sState.isUpper = (rawInput_[1] >= L'A' && rawInput_[1] <= L'Z');
+        sState.isUpper = iswupper(rawInput_[1]) != 0;
         sState.rawIdx = 1;
         states_.insert(states_.begin() + 1, sState);
         engProt_.bias = LanguageBias::HardEnglish;
@@ -587,7 +592,12 @@ bool TypingEngine::HandleModifierAction(TypingAction action, wchar_t keyChar, wc
                 engProt_.bias = LanguageBias::HardEnglish;
             }
         }
-        bool block = escape_.isEscaped() || (!config_.allowEnglishBypass && engProt_.bias == LanguageBias::HardEnglish);
+        bool isUseCircumflexE = (action == TypingAction::CircumflexE &&
+                                 states_.size() == 3 &&
+                                 towlower(states_[0].base) == L'u' &&
+                                 towlower(states_[1].base) == L's' &&
+                                 towlower(states_[2].base) == L'e');
+        bool block = escape_.isEscaped() || (!config_.allowEnglishBypass && engProt_.bias == LanguageBias::HardEnglish && !isUseCircumflexE);
         if (!block && effectiveSpellCheck && IsBlockedEnglishModifier(rawInput_.data(), rawInput_.size())) block = true;
         // Vowel-less buffer + stroke-d = abbreviation chain (PLHDD→PLHĐ, #221):
         // the hard-onset bias (pl/cl/…) exists to protect English words, and no
@@ -993,6 +1003,23 @@ bool TypingEngine::HandleAdjacentCircumflex(TypingAction action, wchar_t c) {
     if (states_.empty()) return false;
     const wchar_t lower = towlower(c);
 
+    // "use" + e -> "uế": un-revert the literal 's' into an acute tone on circumflex 'e'
+    if (action == TypingAction::CircumflexE &&
+        states_.size() == 3 &&
+        towlower(states_[0].base) == L'u' && states_[0].mod == Modifier::None &&
+        towlower(states_[1].base) == L's' &&
+        towlower(states_[2].base) == L'e' && states_[2].mod == Modifier::None &&
+        rawInput_.size() >= 4 &&
+        towlower(rawInput_[0]) == L'u' && towlower(rawInput_[1]) == L's' && towlower(rawInput_[2]) == L'e') {
+        states_.erase(states_.begin() + 1);
+        SetVowelMod(1, Modifier::Circumflex);
+        states_[1].tone = Tone::Acute;
+        states_[1].toneRawIdx = 1;
+        RelocateToneToTarget();
+        engProt_.bias = LanguageBias::Vietnamese;
+        return true;
+    }
+
     CharState& last = states_.back();
 
     // Problem 6: escape logic must match the action's target vowel in UserDefined mode
@@ -1056,10 +1083,7 @@ bool TypingEngine::HandleAdjacentCircumflex(TypingAction action, wchar_t c) {
             }
         }
         // Apply circumflex - PRESERVE FIRST LETTER CASE
-        last.mod = Modifier::Circumflex;
-        // A replacement ươ -> uô changes both quality marks, just as the
-        // free-marking and VNI switch paths do.
-        UndoHornU(states_.data(), states_.size() - 1);
+        SetVowelMod(states_.size() - 1, Modifier::Circumflex);
         // Always relocate (not just when needsRelocate/ValidPrefix): with
         // spell check off, the Valid branch above skips WouldBeValidSyllable
         // entirely, so a tone already sitting on the pre-modifier vowel (e.g.
@@ -1112,8 +1136,7 @@ bool TypingEngine::HandleAdjacentCircumflex(TypingAction action, wchar_t c) {
             }
             if (it->mod == Modifier::Horn && targetBase == L'o') {
                 auto oIndex = static_cast<size_t>(states_.rend() - it - 1);
-                it->mod = Modifier::Circumflex;
-                UndoHornU(states_.data(), oIndex);
+                SetVowelMod(oIndex, Modifier::Circumflex);
                 RelocateToneToTarget();
                 return true;
             }
@@ -1932,8 +1955,11 @@ std::wstring TypingEngine::Commit() {
         // (from typing "user") are ValidPrefix during typing (allowing future
         // modifiers) but should auto-restore when the user commits.
         if (!shouldRestore && !states_.empty()) {
+            bool isBareCircumflexA = (states_.size() == 1 &&
+                                      states_[0].base == L'a' &&
+                                      states_[0].mod == Modifier::Circumflex);
             auto result = Phonology::ValidateSyllableState(states_.data(), states_.size(), config_.allowZwjf);
-            shouldRestore = (result == Phonology::SyllableState::ValidPrefix);
+            shouldRestore = (result == Phonology::SyllableState::ValidPrefix && !isBareCircumflexA);
             unfinishedNucleus = shouldRestore && std::any_of(states_.begin(), states_.end(),
                 [](const CharState& state) { return state.IsVowel(); });
         }
@@ -2208,8 +2234,7 @@ bool TypingEngine::ProcessVniVowelModifier(Modifier targetMod, wchar_t key) {
             } else {
                 if (ShouldRejectModifier(i, targetMod, key)) return false;
             }
-            states_[i].mod = targetMod;
-            if (targetMod == Modifier::Circumflex) UndoHornU(states_.data(), i);
+            SetVowelMod(i, targetMod);
             if (needsRelocate) RelocateToneToTarget();
             return true;
         }
@@ -2234,8 +2259,7 @@ bool TypingEngine::ProcessVniVowelModifier(Modifier targetMod, wchar_t key) {
             canSwitch = true;
         }
         if (canSwitch) {
-            UndoHornU(states_.data(), i);
-            states_[i].mod = targetMod;
+            SetVowelMod(i, targetMod);
             RelocateToneToTarget();
             return true;
         }
@@ -2273,6 +2297,13 @@ bool TypingEngine::ShouldRejectModifier(size_t targetIdx, Modifier newMod,
            !WouldModifierKeyMatchExclusion(key);
 }
 
+void TypingEngine::SetVowelMod(size_t idx, Modifier mod) {
+    states_[idx].mod = mod;
+    if (mod == Modifier::Circumflex) {
+        UndoHornU(states_.data(), idx);
+    }
+}
+
 bool TypingEngine::WouldBeValidSyllable(size_t targetIdx, Modifier newMod,
                                         size_t clearCircumflexIdx,
                                         bool speculateRelocateTone) {
@@ -2296,8 +2327,7 @@ bool TypingEngine::WouldBeValidSyllable(size_t targetIdx, Modifier newMod,
         std::array<CharState, kVowelCap> saved;
         std::copy_n(states_.begin(), bufferLen, saved.begin());
 
-        states_[targetIdx].mod = newMod;
-        if (newMod == Modifier::Circumflex) UndoHornU(states_.data(), targetIdx);
+        SetVowelMod(targetIdx, newMod);
         if (clearCircumflexIdx < bufferLen &&
             saved[clearCircumflexIdx].mod == Modifier::Circumflex) {
             states_[clearCircumflexIdx].mod = Modifier::None;
@@ -2327,8 +2357,7 @@ bool TypingEngine::WouldBeValidSyllable(size_t targetIdx, Modifier newMod,
     // docs/TODO.md as a known parity gap.
     Modifier saved = states_[targetIdx].mod;
     Modifier savedCompanion = targetIdx > 0 ? states_[targetIdx - 1].mod : Modifier::None;
-    states_[targetIdx].mod = newMod;
-    if (newMod == Modifier::Circumflex) UndoHornU(states_.data(), targetIdx);
+    SetVowelMod(targetIdx, newMod);
     bool didClear = false;
     if (clearCircumflexIdx < states_.size() &&
         states_[clearCircumflexIdx].mod == Modifier::Circumflex) {

@@ -5071,6 +5071,58 @@ TEST_F(EnglishProtectionTest, EnglishBlock_UsePrefix_Backspace) {
     EXPECT_EQ(engine_->Peek(), L"us");
 }
 
+TEST(EnglishProtectionParityTest, UsePrefix_User_Users_Usee_BothOrthographies) {
+    for (bool modern : {false, true}) {
+        TypingConfig config;
+        config.inputMethod = InputMethod::Telex;
+        config.spellCheckEnabled = true;
+        config.modernOrtho = modern;
+
+        // user -> live u, ú, use, user -> commit user
+        {
+            TypingEngine engine(config);
+            engine.PushChar(L'u'); EXPECT_EQ(engine.Peek(), L"u");
+            engine.PushChar(L's'); EXPECT_EQ(engine.Peek(), L"ú");
+            engine.PushChar(L'e'); EXPECT_EQ(engine.Peek(), L"use");
+            engine.PushChar(L'r'); EXPECT_EQ(engine.Peek(), L"user");
+            EXPECT_EQ(engine.Commit(), L"user");
+        }
+
+        // users -> live ..., user, users -> commit users
+        {
+            TypingEngine engine(config);
+            engine.PushChar(L'u'); EXPECT_EQ(engine.Peek(), L"u");
+            engine.PushChar(L's'); EXPECT_EQ(engine.Peek(), L"ú");
+            engine.PushChar(L'e'); EXPECT_EQ(engine.Peek(), L"use");
+            engine.PushChar(L'r'); EXPECT_EQ(engine.Peek(), L"user");
+            engine.PushChar(L's'); EXPECT_EQ(engine.Peek(), L"users");
+            EXPECT_EQ(engine.Commit(), L"users");
+        }
+
+        // usee -> live u, ú, use, uế -> commit uế
+        {
+            TypingEngine engine(config);
+            engine.PushChar(L'u'); EXPECT_EQ(engine.Peek(), L"u");
+            engine.PushChar(L's'); EXPECT_EQ(engine.Peek(), L"ú");
+            engine.PushChar(L'e'); EXPECT_EQ(engine.Peek(), L"use");
+            engine.PushChar(L'e'); EXPECT_EQ(engine.Peek(), L"uế");
+            EXPECT_EQ(engine.Commit(), L"uế");
+        }
+    }
+}
+
+TEST(EnglishProtectionParityTest, ClassicAllowEnglishBypassDoesNotYieldUseHook) {
+    TypingConfig config;
+    config.inputMethod = InputMethod::Telex;
+    config.spellCheckEnabled = true;
+    config.allowEnglishBypass = true;
+    config.modernOrtho = false;
+    TypingEngine engine(config);
+    TypeString(engine, L"user");
+    EXPECT_EQ(engine.Peek(), L"ủe");
+    EXPECT_NE(engine.Peek(), L"ủse");
+}
+
 TEST_F(EnglishProtectionTest, EnglishBlock_Vietnamese_U_StillProducesTone) {
     TypeString(*engine_, L"us");
     EXPECT_EQ(engine_->Peek(), L"ú");
@@ -5698,11 +5750,38 @@ TEST_F(AutoRestoreTest, Issue268_UnfinishedCircumflexDoesNotBecomeACompletedWord
         EXPECT_EQ(engine.Peek(), L"đẫ");
         EXPECT_EQ(engine.Commit(), raw);
     }
-    for (const wchar_t* raw : {L"aa", L"baaf", L"DDAAX"}) {
+    for (const wchar_t* raw : {L"baaf", L"DDAAX", L"baaif"}) {
         config_.inputMethod = InputMethod::SimpleTelex;
         TypingEngine engine(config_);
         TypeString(engine, raw);
         EXPECT_EQ(engine.Commit(), raw);
+    }
+    // Bare â nucleus with no consonants commits composed form (matching Rust Basic)
+    const struct BareCase { const wchar_t* raw; const wchar_t* expected; } bareCases[] = {
+        {L"aa", L"â"},
+        {L"aaf", L"ầ"},
+        {L"aas", L"ấ"},
+        {L"aar", L"ẩ"},
+        {L"aax", L"ẫ"},
+        {L"aaj", L"ậ"},
+    };
+    for (const auto& item : bareCases) {
+        TypingEngine engine(config_);
+        TypeString(engine, item.raw);
+        EXPECT_EQ(engine.Commit(), item.expected);
+    }
+    const struct WordCase { const wchar_t* raw; const wchar_t* expected; } wordCases[] = {
+        {L"caauf", L"cầu"},
+        {L"aays", L"ấy"},
+        {L"taamf", L"tầm"},
+        {L"laanf", L"lần"},
+        {L"ddaauf", L"đầu"},
+        {L"nhaamf", L"nhầm"},
+    };
+    for (const auto& item : wordCases) {
+        TypingEngine engine(config_);
+        TypeString(engine, item.raw);
+        EXPECT_EQ(engine.Commit(), item.expected);
     }
 }
 

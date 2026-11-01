@@ -314,6 +314,8 @@ private:
     [[nodiscard]] bool ShouldRejectModifier(size_t targetIdx, Modifier newMod,
                                             wchar_t key);
 
+    void SetVowelMod(size_t idx, Modifier mod);
+
     // State
     std::vector<CharState> states_;   // Internal state buffer
     std::vector<wchar_t> rawInput_;   // Internal raw buffer — consumed tone/mod keys
