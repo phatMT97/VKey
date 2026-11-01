@@ -40,6 +40,7 @@
 #include "core/pipeline/gates/EnglishBiasGate.h"
 #include "core/pipeline/gates/SpellCheckGate.h"
 #include "core/pipeline/gates/ToneEscapeGate.h"
+#include "HookEngineInternal.h"
 #include <algorithm>
 #include <cassert>
 #include <cstdio>
@@ -61,37 +62,6 @@ namespace NextKey {
 // and Start() legitimately runs composition setup on main before the
 // hook thread spawns.
 // ═══════════════════════════════════════════════════════════
-#ifdef NDEBUG
-  #define VKEY_ASSERT_HOOK_THREAD() ((void)0)
-#else
-  #define VKEY_ASSERT_HOOK_THREAD()                                            \
-      do {                                                                     \
-          const DWORD _expected = lifecycle_.ThreadId();                        \
-          if (_expected != 0) {                                                 \
-              const DWORD _current = GetCurrentThreadId();                      \
-              if (_current != _expected) {                                      \
-                  HOOK_LOG(L"VKEY_ASSERT_HOOK_THREAD violated: tid=%lu, expected hook tid=%lu — %hs", \
-                           _current, _expected, __func__);                      \
-                  assert(_current == _expected &&                               \
-                         "composition-state mutation must run on the hook thread"); \
-              }                                                                 \
-          }                                                                     \
-      } while (0)
-#endif
-
-// ═══════════════════════════════════════════════════════════
-// HOOK_LOG → unified runtime-gated Logger (core/Logger.h).
-// Enable from Settings → System → "Bật debug log". Output file is shared
-// with NEXTKEY_LOG / TSF_LOG: VKey_<process>_<pid>.log next to
-// VKeyApp.exe (falls back to %APPDATA%\VKey\logs\ if install dir is
-// read-only). Flushing/closing is owned by the Logger (DLL detach + EXE
-// process exit) — hook Start/Stop does NOT toggle the logger lifecycle.
-// ═══════════════════════════════════════════════════════════
-#define HOOK_LOG(fmt, ...) do {                                              \
-    if (::NextKey::Logger::IsEnabled())                                      \
-        ::NextKey::Logger::Log(L"[Hook] " fmt, ##__VA_ARGS__);               \
-} while (0)
-
 std::atomic<HookEngine*> HookEngine::s_instance{nullptr};
 
 HookEngine::HookEngine() {

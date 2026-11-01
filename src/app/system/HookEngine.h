@@ -22,6 +22,7 @@
 #include "app/system/OutputDispatcher.h"
 #include "app/system/CommitState.h"
 #include "app/system/AdaptiveTick.h"
+#include "output/Internal.h"
 #include "core/pipeline/IBackwardEditExecutor.h"
 #include "core/pipeline/ICommitUndoExecutor.h"
 #include "core/pipeline/IEscRestoreRawExecutor.h"
@@ -282,7 +283,7 @@ public:
     [[nodiscard]] bool IsRunning() const noexcept { return lifecycle_.IsRunning(); }
 
     // Magic number to mark our own SendInput events (prevents other hooks from processing them)
-    static constexpr ULONG_PTR VKEY_EXTRA_INFO = 0x4E4B;  // "NK"
+    static constexpr ULONG_PTR VKEY_EXTRA_INFO = NextKey::Output::Internal::kVKeyExtraInfo;  // "NK"
 
     // Wave 3 PR 3.2 — `GetExeNameForHwnd` migrated to FocusOwner alongside the
     // rest of the focus-classification subsystem. Callers reach it via

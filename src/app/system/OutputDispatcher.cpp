@@ -15,17 +15,11 @@
 #include <chrono>
 #include <vector>
 
-#define HOOK_LOG(fmt, ...) do {                                              \
-    if (::NextKey::Logger::IsEnabled())                                      \
-        ::NextKey::Logger::Log(L"[Hook] " fmt, ##__VA_ARGS__);               \
-} while (0)
+#include "HookEngineInternal.h"
 
 namespace NextKey {
 
-// MUST match HookEngine::VKEY_EXTRA_INFO ("NK" magic). Defined here too
-// so OutputDispatcher.cpp doesn't pull in HookEngine.h (avoid header
-// cycle — HookEngine.h includes OutputDispatcher.h post-PR-3.3).
-namespace { constexpr ULONG_PTR kVKeyExtraInfo = 0x4E4B; }
+using Output::Internal::kVKeyExtraInfo;
 
 std::atomic<OutputDispatcher*> OutputDispatcher::s_instance{nullptr};
 

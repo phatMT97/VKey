@@ -97,13 +97,17 @@ struct HeldModifiers {
     std::size_t count = 0;
 };
 
+[[nodiscard]] constexpr bool IsExtendedKey(WORD vk) noexcept {
+    return vk == VK_RCONTROL || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN;
+}
+
 [[nodiscard]] inline INPUT MakeModifierEvent(WORD vk, bool keyup) noexcept {
     INPUT input{};
     input.type = INPUT_KEYBOARD;
     input.ki.wVk = vk;
     input.ki.wScan = static_cast<WORD>(::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
     input.ki.dwFlags = keyup ? KEYEVENTF_KEYUP : 0u;
-    if (vk == VK_RCONTROL || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN) {
+    if (IsExtendedKey(vk)) {
         input.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
     }
     input.ki.dwExtraInfo = kVKeyExtraInfo;
@@ -124,42 +128,51 @@ inline void RestoreModifiersAfterPartialSend(const HeldModifiers& held, UINT sen
 }
 
 [[nodiscard]] inline HeldModifiers QueryHeldModifiers(std::size_t bsCount,
-                                                      std::wstring_view text) noexcept {
+                                                      std::wstring_view text,
+                                                      bool hasReinject = false) noexcept {
     HeldModifiers result{};
-    if (bsCount == 0 && text.empty()) return result;
-
-    const bool hasLShift = (g_getAsyncKeyState(VK_LSHIFT) & 0x8000) != 0;
-    const bool hasRShift = (g_getAsyncKeyState(VK_RSHIFT) & 0x8000) != 0;
-    const bool hasLCtrl  = (g_getAsyncKeyState(VK_LCONTROL) & 0x8000) != 0;
-    const bool hasRCtrl  = (g_getAsyncKeyState(VK_RCONTROL) & 0x8000) != 0;
-    const bool hasLAlt   = (g_getAsyncKeyState(VK_LMENU) & 0x8000) != 0;
-    const bool hasRAlt   = (g_getAsyncKeyState(VK_RMENU) & 0x8000) != 0;
-    const bool hasLWin   = (g_getAsyncKeyState(VK_LWIN) & 0x8000) != 0;
-    const bool hasRWin   = (g_getAsyncKeyState(VK_RWIN) & 0x8000) != 0;
+    const bool hasTextOrReinject = !text.empty() || hasReinject;
+    if (bsCount == 0 && !hasTextOrReinject) return result;
 
     if (bsCount > 0) {
-        if (hasLShift) result.vks[result.count++] = VK_LSHIFT;
-        if (hasRShift) result.vks[result.count++] = VK_RSHIFT;
-        if (!hasLShift && !hasRShift && (g_getAsyncKeyState(VK_SHIFT) & 0x8000) != 0) {
-            result.vks[result.count++] = VK_LSHIFT;
+        if ((g_getAsyncKeyState(VK_SHIFT) & 0x8000) != 0) {
+            const bool hasLShift = (g_getAsyncKeyState(VK_LSHIFT) & 0x8000) != 0;
+            const bool hasRShift = (g_getAsyncKeyState(VK_RSHIFT) & 0x8000) != 0;
+            if (hasLShift) result.vks[result.count++] = VK_LSHIFT;
+            if (hasRShift) result.vks[result.count++] = VK_RSHIFT;
+            if (!hasLShift && !hasRShift) {
+                result.vks[result.count++] = VK_LSHIFT;
+            }
         }
     }
 
-    if (bsCount > 0 || !text.empty()) {
-        if (hasLCtrl) result.vks[result.count++] = VK_LCONTROL;
-        if (hasRCtrl) result.vks[result.count++] = VK_RCONTROL;
-        if (!hasLCtrl && !hasRCtrl && (g_getAsyncKeyState(VK_CONTROL) & 0x8000) != 0) {
-            result.vks[result.count++] = VK_LCONTROL;
+    if (bsCount > 0 || hasTextOrReinject) {
+        if ((g_getAsyncKeyState(VK_CONTROL) & 0x8000) != 0) {
+            const bool hasLCtrl = (g_getAsyncKeyState(VK_LCONTROL) & 0x8000) != 0;
+            const bool hasRCtrl = (g_getAsyncKeyState(VK_RCONTROL) & 0x8000) != 0;
+            if (hasLCtrl) result.vks[result.count++] = VK_LCONTROL;
+            if (hasRCtrl) result.vks[result.count++] = VK_RCONTROL;
+            if (!hasLCtrl && !hasRCtrl) {
+                result.vks[result.count++] = VK_LCONTROL;
+            }
         }
 
-        if (hasLAlt) result.vks[result.count++] = VK_LMENU;
-        if (hasRAlt) result.vks[result.count++] = VK_RMENU;
-        if (!hasLAlt && !hasRAlt && (g_getAsyncKeyState(VK_MENU) & 0x8000) != 0) {
-            result.vks[result.count++] = VK_LMENU;
+        if ((g_getAsyncKeyState(VK_MENU) & 0x8000) != 0) {
+            const bool hasLAlt = (g_getAsyncKeyState(VK_LMENU) & 0x8000) != 0;
+            const bool hasRAlt = (g_getAsyncKeyState(VK_RMENU) & 0x8000) != 0;
+            if (hasLAlt) result.vks[result.count++] = VK_LMENU;
+            if (hasRAlt) result.vks[result.count++] = VK_RMENU;
+            if (!hasLAlt && !hasRAlt) {
+                result.vks[result.count++] = VK_LMENU;
+            }
         }
 
-        if (hasLWin) result.vks[result.count++] = VK_LWIN;
-        if (hasRWin) result.vks[result.count++] = VK_RWIN;
+        if ((g_getAsyncKeyState(VK_LWIN) & 0x8000) != 0) {
+            result.vks[result.count++] = VK_LWIN;
+        }
+        if ((g_getAsyncKeyState(VK_RWIN) & 0x8000) != 0) {
+            result.vks[result.count++] = VK_RWIN;
+        }
     }
 
     return result;

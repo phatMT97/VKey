@@ -27,7 +27,7 @@ INPUT MakeKeyEvent(WORD vk, bool keyup,
     in.ki.wVk = vk;
     in.ki.wScan = static_cast<WORD>(::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
     in.ki.dwFlags = keyup ? KEYEVENTF_KEYUP : 0u;
-    if (vk == VK_RCONTROL || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN) {
+    if (Internal::IsExtendedKey(vk)) {
         in.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
     }
     in.ki.dwExtraInfo = extraInfo;
@@ -52,10 +52,15 @@ bool Win32SendInputInjector::Replace(std::size_t bsCount,
     std::array<INPUT, kMaxBatch> buf{};
     std::size_t i = 0;
 
-    // Game-compat re-inject follows modifier releases in the batch (see IOutputInjector::Replace).
+    // Game-compat re-inject leads the batch so user modifiers remain intact on
+    // key-down (see IOutputInjector::Replace). Held modifiers are released
+    // afterward so synthetic backspaces stay modifier-neutral.
     // Key-down only: a sustained hold keeps sending downs to the game, and
     // the physical key-up passes through the hook on release.
     const std::size_t reinjectCount = (reinjectVk != 0) ? 1u : 0u;
+    if (reinjectCount != 0) {
+        buf[i++] = MakeKeyEvent(static_cast<WORD>(reinjectVk), /*keyup=*/false);
+    }
 
     // Keep the entire synthetic replacement modifier-neutral: physical modifiers
     // (Shift, Ctrl, Alt, Win) turn synthetic VK_BACK into destructive editor
@@ -63,18 +68,16 @@ bool Win32SendInputInjector::Replace(std::size_t bsCount,
     // Alt+BS Undo). Release held modifiers at the front of the batch and restore
     // them at the tail before the hook resumes physical input.
     const auto heldMods = Internal::QueryHeldModifiers(
-        bsCount, reinjectCount && text.empty() ? std::wstring_view{L"x"} : text);
+        bsCount, text, reinjectCount != 0);
     for (std::size_t k = 0; k < heldMods.count; ++k) {
         if (i + 1 > kMaxBatch) return false;
         buf[i++] = MakeKeyEvent(heldMods.vks[k], /*keyup=*/true);
     }
+
     // Bait-char prefix (Chromium suggest-dismiss): inserts U+202F + an
     // extra BS to delete it before the rest of the deletes/chars run.
     // Predicate in Internal::ShouldEmitBait — pure-BS only skips bait
     // when the user opts into the "BS giữ chữ khi có gợi ý" setting.
-    if (reinjectCount != 0) {
-        buf[i++] = MakeKeyEvent(static_cast<WORD>(reinjectVk), /*keyup=*/false);
-    }
     const bool emitBait = Internal::ShouldEmitBait(
         needsBaitCharPrefix_, bsCount, text,
         suggestKeepChars_.load(std::memory_order_acquire));
@@ -109,7 +112,7 @@ bool Win32SendInputInjector::Replace(std::size_t bsCount,
     const bool delivered = Internal::TrackedSendInput(
         buf.data(), static_cast<UINT>(i), &sent);
     if (!delivered && heldMods.count > 0 && sent > 0) {
-        Internal::RestoreModifiersAfterPartialSend(heldMods, sent, 0, i - heldMods.count);
+        Internal::RestoreModifiersAfterPartialSend(heldMods, sent, reinjectCount, i - heldMods.count);
     }
     return delivered;
 }

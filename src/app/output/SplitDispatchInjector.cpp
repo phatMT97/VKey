@@ -27,7 +27,7 @@ INPUT MakeKey(WORD vk, bool keyup) noexcept {
     in.ki.wVk = vk;
     in.ki.wScan = static_cast<WORD>(::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
     in.ki.dwFlags = keyup ? KEYEVENTF_KEYUP : 0u;
-    if (vk == VK_RCONTROL || vk == VK_RMENU || vk == VK_LWIN || vk == VK_RWIN) {
+    if (Internal::IsExtendedKey(vk)) {
         in.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
     }
     in.ki.dwExtraInfo = Internal::kVKeyExtraInfo;
@@ -56,22 +56,23 @@ bool SplitDispatchInjector::Replace(std::size_t bsCount,
     // inherit the same selection-eat quirk as Edge's omnibox.
     std::array<INPUT, kMaxBatch> bsBuf{};
     std::size_t bi = 0;
-    // Game-compat re-inject follows modifier releases in batch 1 so it can never be separated from
-    // the backspaces that delete it. Reached only via the per-app
-    // "compatibility split" override (sendMethod 2/3) on a non-Electron,
-    // non-console host — auto-detected Electron/console set localSkipEmpty,
-    // which zeroes reinjectVk upstream in HandleAlphaKey.
+    // Game-compat re-inject leads batch 1 so user modifiers remain intact on
+    // key-down (see IOutputInjector::Replace). Held modifiers are released
+    // afterward so synthetic backspaces stay modifier-neutral.
+    // Reached only via the per-app "compatibility split" override (sendMethod 2/3)
+    // on a non-Electron, non-console host — auto-detected Electron/console set
+    // localSkipEmpty, which zeroes reinjectVk upstream in HandleAlphaKey.
     const std::size_t reinjectCount = (reinjectVk != 0) ? 1u : 0u;
+    if (reinjectCount != 0) {
+        bsBuf[bi++] = MakeKey(static_cast<WORD>(reinjectVk), /*keyup=*/false);
+    }
     // See Win32SendInputInjector::Replace: synthetic Backspace must not inherit
     // physically held modifiers (Shift #225, Ctrl/Alt/Win #267). Restore
     // modifiers in this first batch before the optional inter-batch sleep.
-    const auto heldMods = Internal::QueryHeldModifiers(bsCount, reinjectCount ? L"x" : L"");
+    const auto heldMods = Internal::QueryHeldModifiers(bsCount, L"", reinjectCount != 0);
     for (std::size_t k = 0; k < heldMods.count; ++k) {
         if (bi + 1 > kMaxBatch) return false;
         bsBuf[bi++] = MakeKey(heldMods.vks[k], /*keyup=*/true);
-    }
-    if (reinjectCount != 0) {
-        bsBuf[bi++] = MakeKey(static_cast<WORD>(reinjectVk), /*keyup=*/false);
     }
     const bool emitBait = Internal::ShouldEmitBait(
         needsBaitCharPrefix_, bsCount, text,
@@ -96,7 +97,7 @@ bool SplitDispatchInjector::Replace(std::size_t bsCount,
         if (!Internal::TrackedSendInput(
                 bsBuf.data(), static_cast<UINT>(bi), &sent)) {
             if (heldMods.count > 0 && sent > 0) {
-                Internal::RestoreModifiersAfterPartialSend(heldMods, sent, 0, bi - heldMods.count);
+                Internal::RestoreModifiersAfterPartialSend(heldMods, sent, reinjectCount, bi - heldMods.count);
             }
             return false;
         }
