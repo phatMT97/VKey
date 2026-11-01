@@ -14,6 +14,7 @@
 #include "core/Strings.h"
 #include "core/CrashLog.h"
 #include <strsafe.h>
+#include <algorithm>
 #include <vector>
 #include <CommCtrl.h>
 #include <uxtheme.h>
@@ -694,11 +695,15 @@ bool TrayIcon::ProcessMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 ignoreNextLButtonUp_ = false;
                 return true;
             }
-            // Defer toggle slightly to see if a double-click follows (GetDoubleClickTime).
-            // This avoids toggling immediately and undoing, eliminating the async race
+            // Defer toggle slightly to see if a double-click follows. This avoids
+            // toggling immediately and undoing, eliminating the async race
             // condition that flipped mode to English when opening Settings (issue #266).
+            // Capped at 250 ms (anh, 2026-11-01): the system double-click time
+            // (~500 ms) made every toggle feel laggy; a slower double-click now
+            // toggles and then opens Settings, which is the accepted trade-off.
             pendingClickToggle_ = true;
-            if (!SetTimer(hwndMessage_, TIMER_ID_TRAY_CLICK, GetDoubleClickTime(), nullptr)) {
+            if (!SetTimer(hwndMessage_, TIMER_ID_TRAY_CLICK,
+                          (std::min)(GetDoubleClickTime(), 250u), nullptr)) {
                 pendingClickToggle_ = false;
                 if (menuCallback_) menuCallback_(TrayMenuId::ToggleMode);
             }
