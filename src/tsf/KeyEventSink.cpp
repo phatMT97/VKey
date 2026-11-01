@@ -733,6 +733,9 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
         lastTestedVk_ = 0;
         lastTranslatedChar_ = 0;
         lastEnglishMacroObservedVk_ = 0;
+        // Known benign mismatch (maintainer accepted 2026-11-01): when UndoMacro
+        // fails in OnKeyDown it returns pfEaten=FALSE although OnTestKeyDown
+        // already reported eaten.
         *pfEaten = pEngineController_->UndoMacro(pContext) ? TRUE : FALSE;
         return S_OK;
     }
