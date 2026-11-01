@@ -1,6 +1,35 @@
 cmake_minimum_required(VERSION 3.20)
 project(VKey VERSION 4.4.0 LANGUAGES CXX)
 
+# Git commit hash and build info
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE VKEY_GIT_COMMIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT VKEY_GIT_COMMIT_HASH)
+    set(VKEY_GIT_COMMIT_HASH "unknown")
+endif()
+
+execute_process(
+    COMMAND git status --porcelain
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE VKEY_GIT_DIRTY
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(VKEY_GIT_DIRTY)
+    set(VKEY_GIT_COMMIT_HASH "${VKEY_GIT_COMMIT_HASH}-dirty")
+endif()
+
+if(DEFINED ENV{GITHUB_RUN_NUMBER})
+    set(VKEY_CI_RUN_NUMBER "$ENV{GITHUB_RUN_NUMBER}")
+else()
+    set(VKEY_CI_RUN_NUMBER "")
+endif()
+
 # Generate Version.h from Version.h.in — version is defined once in project() above.
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/Version.h.in

@@ -15,6 +15,7 @@
 #include <Windows.h>
 #include <ShlObj.h>
 #include <share.h>
+#include "core/WinStrings.h"
 #else
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -87,10 +88,20 @@ void WriteSessionBannerUnlocked() {
     const wchar_t* hostName = wcsrchr(host, L'\\');
     hostName = (hostName != nullptr) ? hostName + 1 : host;
 
-    fwprintf(File(),
-             L"=== VKey v%hs | Windows %lu.%lu.%lu | host %ls | PID %lu ===\n",
-             VKEY_VERSION_STR, os.dwMajorVersion, os.dwMinorVersion,
-             os.dwBuildNumber, hostName, GetCurrentProcessId());
+    std::wstring buildVer = GetBuildVersion(__DATE__, __TIME__);
+    if (VKEY_CI_RUN_WSTR[0] != L'\0') {
+        fwprintf(File(),
+                 L"=== VKey v%hs (build %ls, run #%ls, commit %hs) | Windows %lu.%lu.%lu | host %ls | PID %lu ===\n",
+                 VKEY_VERSION_STR, buildVer.c_str(), VKEY_CI_RUN_WSTR,
+                 VKEY_GIT_HASH_STR, os.dwMajorVersion, os.dwMinorVersion,
+                 os.dwBuildNumber, hostName, GetCurrentProcessId());
+    } else {
+        fwprintf(File(),
+                 L"=== VKey v%hs (build %ls, commit %hs) | Windows %lu.%lu.%lu | host %ls | PID %lu ===\n",
+                 VKEY_VERSION_STR, buildVer.c_str(),
+                 VKEY_GIT_HASH_STR, os.dwMajorVersion, os.dwMinorVersion,
+                 os.dwBuildNumber, hostName, GetCurrentProcessId());
+    }
     std::fflush(File());
 }
 
