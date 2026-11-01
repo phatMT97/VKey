@@ -850,7 +850,7 @@ private:
     // Focus routing and application (HookEngineFocus.cpp)
     void RouteFocusOnHookThread(std::shared_ptr<const FocusClassification> cls);
     void TryApplyDeferredFocusOnHookThread();
-    void ReconcileModifierStateOnHookThread() noexcept;
+    void ReconcileModifierStateOnHookThread(bool gestureBoundary = true) noexcept;
     void ApplyFocusOnHookThread(std::shared_ptr<const FocusClassification> cls);
     void RefreshBrowserRouteOnHookThread(bool forceRead, bool notifyCallback);
     [[nodiscard]] bool IsEffectiveTsf() const noexcept;

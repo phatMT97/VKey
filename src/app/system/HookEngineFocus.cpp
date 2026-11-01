@@ -154,7 +154,7 @@ void HookEngine::TryApplyDeferredFocusOnHookThread() {
     }
 }
 
-void HookEngine::ReconcileModifierStateOnHookThread() noexcept {
+void HookEngine::ReconcileModifierStateOnHookThread(bool gestureBoundary) noexcept {
     VKEY_ASSERT_HOOK_THREAD();
 
     // Snapshot once: repeated GetAsyncKeyState calls across this transaction
@@ -177,11 +177,15 @@ void HookEngine::ReconcileModifierStateOnHookThread() noexcept {
     // contamination so the eventual release cannot fire a modifier-alone VKey
     // action in the new app. Once every modifier is up, stale latches are safe
     // to clear.
-    modComboSeen_ = anyPhysicalModifier;
-    otherKeyPressed_ = anyPhysicalModifier;
-    for (int i = 0; i < kModCount; ++i) {
-        modTapCount_[i] = 0;
-        modTapLastTs_[i] = 0;
+    // Same-target focus noise (#273: capture tools firing FOREGROUND every
+    // second) is not a gesture boundary; clearing here breaks double-tap.
+    if (gestureBoundary) {
+        modComboSeen_ = anyPhysicalModifier;
+        otherKeyPressed_ = anyPhysicalModifier;
+        for (int i = 0; i < kModCount; ++i) {
+            modTapCount_[i] = 0;
+            modTapLastTs_[i] = 0;
+        }
     }
 
     if (hotkeyManager_) {
@@ -256,15 +260,21 @@ void HookEngine::ApplyFocusOnHookThread(std::shared_ptr<const FocusClassificatio
     // Reset composition + per-word state only when the active input target actually changes.
     // Spurious focus events (e.g. background UI timer in FastStone Capture, issue #273)
     // for the same window and control must not wipe live composition mid-word.
+    //
+    // Known accepted limitation (maintainer decision 2026-11-01): a fast A->B->A
+    // switch whose B request is dropped/merged leaves A seeing "unchanged", so
+    // keys typed into B during that window stay in the composition; accepted as rare.
     const std::uintptr_t childForFocus = (currentFocusedChildOpaque != 0)
         ? currentFocusedChildOpaque
         : cls->focusedChildHwndOpaque;
     const std::uintptr_t effectiveFocusHwnd =
         (childForFocus != 0) ? childForFocus : cls->hwndOpaque;
 
-    if (ShouldResetCompositionOnFocusChange(
-            cls->hwndOpaque, effectiveFocusHwnd,
-            lastAppliedHwnd_, lastAppliedEffectiveFocusHwnd_)) {
+    const bool targetChanged = ShouldResetCompositionOnFocusChange(
+        cls->hwndOpaque, effectiveFocusHwnd,
+        lastAppliedHwnd_, lastAppliedEffectiveFocusHwnd_);
+
+    if (targetChanged) {
         ResetComposition();
         tempEngineOff_ = false;
         lastAppliedHwnd_ = cls->hwndOpaque;
@@ -283,42 +293,45 @@ void HookEngine::ApplyFocusOnHookThread(std::shared_ptr<const FocusClassificatio
     // pattern; the activity clock catches a key that overtook the worker probe
     // because LowLevelKeyboardProc calls MarkActivity before DrainHookCommands.
     bool shouldArmAutoCap = false;
-    if (cfg->autoCaps && cls->isKnownEmptyDocument) {
-        const HWND foregroundHwnd = GetForegroundWindow();
-        DWORD foregroundPid = 0;
-        if (foregroundHwnd != nullptr) {
-            GetWindowThreadProcessId(foregroundHwnd, &foregroundPid);
+    if (targetChanged) {
+        if (cfg->autoCaps && cls->isKnownEmptyDocument) {
+            const HWND foregroundHwnd = GetForegroundWindow();
+            DWORD foregroundPid = 0;
+            if (foregroundHwnd != nullptr) {
+                GetWindowThreadProcessId(foregroundHwnd, &foregroundPid);
+            }
+            const std::uint64_t nowMs = GetTickCount64();
+            const bool foregroundStayedStable =
+                GetForegroundWindow() == foregroundHwnd;
+            const AutoCapFocusEvidence evidence{
+                .isKnownEmptyDocument = true,
+                .hwndOpaque = cls->hwndOpaque,
+                .focusedChildHwndOpaque = cls->focusedChildHwndOpaque,
+                .pid = cls->pid,
+                .probeStartedAtMs = cls->emptyDocumentProbeStartedAtMs,
+            };
+            const AutoCapFocusContext current{
+                .hwndOpaque = foregroundStayedStable
+                    ? reinterpret_cast<std::uintptr_t>(foregroundHwnd)
+                    : 0,
+                .focusedChildHwndOpaque = foregroundStayedStable
+                    ? currentFocusedChildOpaque
+                    : 0,
+                .pid = static_cast<std::uint32_t>(foregroundPid),
+                .lastInputAtMs = lastActivityTickMs_.load(std::memory_order_relaxed),
+                .nowMs = nowMs,
+            };
+            shouldArmAutoCap = ShouldArmAutoCapFromFocusEvidence(
+                evidence, current, kAutoCapFocusEvidenceMaxAgeMs);
         }
-        const std::uint64_t nowMs = GetTickCount64();
-        const bool foregroundStayedStable =
-            GetForegroundWindow() == foregroundHwnd;
-        const AutoCapFocusEvidence evidence{
-            .isKnownEmptyDocument = true,
-            .hwndOpaque = cls->hwndOpaque,
-            .focusedChildHwndOpaque = cls->focusedChildHwndOpaque,
-            .pid = cls->pid,
-            .probeStartedAtMs = cls->emptyDocumentProbeStartedAtMs,
-        };
-        const AutoCapFocusContext current{
-            .hwndOpaque = foregroundStayedStable
-                ? reinterpret_cast<std::uintptr_t>(foregroundHwnd)
-                : 0,
-            .focusedChildHwndOpaque = foregroundStayedStable
-                ? currentFocusedChildOpaque
-                : 0,
-            .pid = static_cast<std::uint32_t>(foregroundPid),
-            .lastInputAtMs = lastActivityTickMs_.load(std::memory_order_relaxed),
-            .nowMs = nowMs,
-        };
-        shouldArmAutoCap = ShouldArmAutoCapFromFocusEvidence(
-            evidence, current, kAutoCapFocusEvidenceMaxAgeMs);
+        autoCapState_ = shouldArmAutoCap
+            ? AutoCapState::ReadyToCapitalize
+            : AutoCapState::Idle;
     }
-    autoCapState_ = shouldArmAutoCap
-        ? AutoCapState::ReadyToCapitalize
-        : AutoCapState::Idle;
     // Reconcile our modifier/hotkey trackers after desktop switch / Win+L,
     // without turning a still-held Alt+Tab chord into an Alt-alone release.
-    ReconcileModifierStateOnHookThread();
+    // Runs even for an unchanged target: Win+L returns to the same window.
+    ReconcileModifierStateOnHookThread(targetChanged);
 
     HOOK_LOG(L"  AppDetect: console=%d skipEmpty=%d electron=%d webview2=%d bait=%d clipboard=%d editMsg=%d useClipInj=%d splitSleepMs=%d emptyDoc=%d fresh=%d",
              cls->isConsole ? 1 : 0, cls->localSkipEmpty ? 1 : 0, cls->localElectronApp ? 1 : 0,
