@@ -126,13 +126,8 @@ SciterSubDialog::SciterSubDialog(const SubDialogConfig& config)
         sciter::dom::element rootEl2(get_root());
         sciter::dom::element mainContainer = rootEl2.find_first("#main-container");
         if (mainContainer.is_valid()) {
-            wchar_t bgColor[64];
-            if (isDark) {
-                swprintf_s(bgColor, L"rgba(18, 20, 28, %.2f)", opacity);
-            } else {
-                swprintf_s(bgColor, L"rgba(244, 245, 247, %.2f)", opacity);
-            }
-            mainContainer.set_style_attribute("background-color", bgColor);
+            mainContainer.set_style_attribute("background-color",
+                SciterHelper::FormatBackgroundColor(isDark, opacity).c_str());
         }
     }
 
@@ -342,13 +337,8 @@ LRESULT CALLBACK SciterSubDialog::SubclassProc(
                     sciter::dom::element root = s_instance->get_root();
                     sciter::dom::element container = root.find_first("#main-container");
                     if (container.is_valid()) {
-                        wchar_t bgColor[64];
-                        if (dark) {
-                            swprintf_s(bgColor, L"rgba(18, 20, 28, %.2f)", opacity);
-                        } else {
-                            swprintf_s(bgColor, L"rgba(244, 245, 247, %.2f)", opacity);
-                        }
-                        container.set_style_attribute("background-color", bgColor);
+                        container.set_style_attribute("background-color",
+                            SciterHelper::FormatBackgroundColor(dark, opacity).c_str());
                     }
                 }
             }

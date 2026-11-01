@@ -6,6 +6,8 @@
 
 #pragma once
 #include <windows.h>
+#include <cstdio>
+#include <string>
 
 namespace NextKey {
 
@@ -64,6 +66,15 @@ namespace Win10Frame {
 }
 
 namespace SciterHelper {
+
+    constexpr const wchar_t* BASE_RGB_DARK = L"18, 20, 28";
+    constexpr const wchar_t* BASE_RGB_LIGHT = L"244, 245, 247";
+
+    [[nodiscard]] inline std::wstring FormatBackgroundColor(bool dark, double opacity) {
+        wchar_t buf[64];
+        swprintf_s(buf, L"rgba(%ls, %.2f)", dark ? BASE_RGB_DARK : BASE_RGB_LIGHT, opacity);
+        return buf;
+    }
 
     /**
      * Enable DWM blur/acrylic effect on a window.

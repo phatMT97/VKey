@@ -86,7 +86,7 @@
 /* Fallback for --blur-mode none (Solid Background) */
 html.no-alpha,
 body.no-alpha {
-    background-color: #ffffff !important;
+    background-color: #f4f5f7 !important;
     color: #1a1a1a !important;
 }
 
@@ -98,7 +98,7 @@ html.dark.no-alpha {
 
 /* Container needs to be opaque when in no-alpha mode */
 html.no-alpha #main-container {
-    background-color: #ffffff !important;
+    background-color: #f4f5f7 !important;
 }
 
 html.no-alpha body.dark #main-container {
@@ -349,13 +349,7 @@ body.dark select option:checked {
 }
 
 /* Rows near the bottom open upwards, retaining the right-edge alignment. */
-#row-spell-exclusions .info-icon > popup[role="tooltip"],
-#row-hotkeys .info-icon > popup[role="tooltip"],
-#row-tsf-apps .info-icon > popup[role="tooltip"],
-#row-hide-preedit-underline .info-icon > popup[role="tooltip"],
-#row-enable-toast .info-icon > popup[role="tooltip"],
-#row-debug-log .info-icon > popup[role="tooltip"],
-#row-check-update .info-icon > popup[role="tooltip"] {
+.tooltip-up .info-icon > popup[role="tooltip"] {
     popup-position: bottom-right top-right;
 }
 

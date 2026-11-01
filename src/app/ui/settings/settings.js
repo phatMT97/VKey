@@ -145,12 +145,7 @@ function updateBackgroundForTheme(isDark) {
     var hiddenInput = document.getElementById("val-bg-opacity");
     if (container && hiddenInput) {
         var opacity = parseInt(hiddenInput.value || "80") / 100;
-        if (isDark) {
-            // Semi-transparent blue-gray for frosted glass
-            container.style.backgroundColor = "rgba(18, 20, 28, " + opacity + ")";
-        } else {
-            container.style.backgroundColor = "rgba(255, 255, 255, " + opacity + ")";
-        }
+        container.style.backgroundColor = getThemeBackgroundColor(isDark, opacity);
     }
 }
 
@@ -504,12 +499,7 @@ function updateSliderFromMouse(evt, slider, thumb, fill, valueLabel, hiddenInput
     var container = document.getElementById("main-container");
     if (container) {
         var isDark = document.body.classList.contains("dark");
-        if (isDark) {
-            // Semi-transparent blue-gray for frosted glass effect
-            container.style.backgroundColor = "rgba(18, 20, 28, " + opacity + ")";
-        } else {
-            container.style.backgroundColor = "rgba(255, 255, 255, " + opacity + ")";
-        }
+        container.style.backgroundColor = getThemeBackgroundColor(isDark, opacity);
     }
 }
 
@@ -532,11 +522,7 @@ function setBackgroundOpacity(value) {
         var container = document.getElementById("main-container");
         if (container) {
             var isDark = document.body.classList.contains("dark");
-            if (isDark) {
-                container.style.backgroundColor = "rgba(18, 20, 28, " + opacity + ")";
-            } else {
-                container.style.backgroundColor = "rgba(255, 255, 255, " + opacity + ")";
-            }
+            container.style.backgroundColor = getThemeBackgroundColor(isDark, opacity);
         }
     }
 }

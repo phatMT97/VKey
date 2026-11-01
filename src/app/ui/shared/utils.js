@@ -24,6 +24,14 @@ function initSubDialog(scrollSelector) {
     });
 }
 
+var THEME_BASE_RGB_DARK = "18, 20, 28";
+var THEME_BASE_RGB_LIGHT = "244, 245, 247";
+
+function getThemeBackgroundColor(isDark, opacity) {
+    var baseRgb = isDark ? THEME_BASE_RGB_DARK : THEME_BASE_RGB_LIGHT;
+    return "rgba(" + baseRgb + ", " + opacity + ")";
+}
+
 // Set background opacity (called from C++ via call_function)
 // Shared between all subdialogs that use frosted glass effect
 function setBackgroundOpacity(value) {
@@ -31,11 +39,7 @@ function setBackgroundOpacity(value) {
     var container = document.getElementById("main-container");
     if (container) {
         var isDark = document.body.classList.contains("dark");
-        if (isDark) {
-            container.style.backgroundColor = "rgba(18, 20, 28, " + opacity + ")";
-        } else {
-            container.style.backgroundColor = "rgba(255, 255, 255, " + opacity + ")";
-        }
+        container.style.backgroundColor = getThemeBackgroundColor(isDark, opacity);
     }
 }
 

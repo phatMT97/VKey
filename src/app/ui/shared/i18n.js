@@ -47,13 +47,6 @@ function buildViDict() {
             vi["_title:" + key] = val;
         }
     });
-    document.querySelectorAll("[data-i18n-tooltip]").forEach(function (el) {
-        var key = el.getAttribute("data-i18n-tooltip");
-        var val = el.getAttribute("data-tooltip") || "";
-        if (key && !vi["_tooltip:" + key]) {
-            vi["_tooltip:" + key] = val;
-        }
-    });
 }
 
 function applyTranslations() {
@@ -80,12 +73,6 @@ function applyTranslations() {
         var key = el.getAttribute("data-i18n-title");
         var text = (dict && dict[key]) || (vi && vi["_title:" + key]);
         if (text) el.setAttribute("title", text);
-    });
-
-    document.querySelectorAll("[data-i18n-tooltip]").forEach(function (el) {
-        var key = el.getAttribute("data-i18n-tooltip");
-        var text = (dict && dict[key]) || (vi && vi["_tooltip:" + key]);
-        if (text) el.setAttribute("data-tooltip", text);
     });
 
     var titleEl = document.querySelector("title[data-i18n]");

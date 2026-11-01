@@ -42,6 +42,7 @@ namespace NextKey {
 
 // Timer IDs for async operations
 static constexpr UINT_PTR TIMER_RESIZE_WINDOW = 1001;
+static constexpr UINT_PTR TIMER_READY_FALLBACK = 1003;
 
 // Private self-posted message for coalescing rapid V/E mode changes
 static constexpr UINT WM_SETTINGS_MODE_SYNC = WM_APP + 1;
@@ -110,6 +111,9 @@ SettingsDialog::SettingsDialog()
         NEXTKEY_LOG(L"Failed to load settings.html");
         PostMessageW(get_hwnd(), WM_CLOSE, 0, 0);
     }
+
+    // Fallback: reveal window if DOCUMENT_READY never fires (avoids holding VKey_Settings_Mutex forever)
+    SetTimer(get_hwnd(), TIMER_READY_FALLBACK, 1500, nullptr);
 }
 
 void SettingsDialog::applyDocumentSettings() {
@@ -128,6 +132,7 @@ void SettingsDialog::initializeWindow() {
     if (uiInitialized_) return;
     HWND hwnd = get_hwnd();
     if (!hwnd) return;
+    KillTimer(hwnd, TIMER_READY_FALLBACK);
     sciter::dom::element root = get_root();
     if (!root.is_valid() || !root.find_first("#main-container")) {
         NEXTKEY_LOG(L"Settings document ready without its main container");
@@ -262,6 +267,7 @@ LRESULT CALLBACK SettingsDialog::SubclassProc(
     // WM_CLOSE: terminate child subdialogs, flush deferred save, then destroy & exit
     // (MUST use ExitProcess — avoids Sciter assertion failures during normal teardown)
     if (msg == WM_CLOSE) {
+        KillTimer(hwnd, TIMER_READY_FALLBACK);
         // Terminate any subdialogs we spawned (they run as separate processes)
         TerminateAllSubprocesses();
 
@@ -272,7 +278,6 @@ LRESULT CALLBACK SettingsDialog::SubclassProc(
         ShowWindow(hwnd, SW_HIDE);
         DestroyWindow(hwnd);
         ExitProcess(0);
-        return 0;
     }
 
     if (msg == WM_DESTROY) {
@@ -330,6 +335,15 @@ LRESULT CALLBACK SettingsDialog::SubclassProc(
     if (s_instance
         && SciterHelper::ConsumeRestoreFromMinimized(msg, wParam, s_instance->wasMinimized_)) {
         SciterHelper::RepaintAfterRestore(hwnd);
+    }
+
+    // Handle fallback timer if DOCUMENT_READY never arrived
+    if (msg == WM_TIMER && wParam == TIMER_READY_FALLBACK) {
+        KillTimer(hwnd, TIMER_READY_FALLBACK);
+        if (s_instance && !s_instance->uiInitialized_) {
+            s_instance->initializeWindow();
+        }
+        return 0;
     }
 
     // Handle timer for window resize after CSS transition
@@ -428,13 +442,8 @@ LRESULT CALLBACK SettingsDialog::SubclassProc(
                 sciter::dom::element container = htmlRoot.find_first("#main-container");
                 if (container.is_valid()) {
                     double opacity = s_instance->backgroundOpacity_ / 100.0;
-                    wchar_t bgColor[64];
-                    if (dark) {
-                        swprintf_s(bgColor, L"rgba(18, 20, 28, %.2f)", opacity);
-                    } else {
-                        swprintf_s(bgColor, L"rgba(244, 245, 247, %.2f)", opacity);
-                    }
-                    container.set_style_attribute("background-color", bgColor);
+                    container.set_style_attribute("background-color",
+                        SciterHelper::FormatBackgroundColor(dark, opacity).c_str());
                 }
             }
         }
@@ -497,6 +506,7 @@ bool SettingsDialog::handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params) {
         return handled;
     }
     if (params.cmd == DOCUMENT_READY && params.heTarget == get_root()) {
+        KillTimer(get_hwnd(), TIMER_READY_FALLBACK);
         if (!uiInitialized_) PostMessageW(get_hwnd(), WM_SETTINGS_INITIALIZE, 0, 0);
         return sciter::window::handle_event(he, params);
     }
@@ -876,13 +886,8 @@ void SettingsDialog::handleToggleChange(const std::wstring& id, bool value) {
         double opacity = backgroundOpacity_ / 100.0;
         sciter::dom::element container = htmlRoot.find_first("#main-container");
         if (container.is_valid()) {
-            wchar_t bgColor[64];
-            if (dark) {
-                swprintf_s(bgColor, L"rgba(18, 20, 28, %.2f)", opacity);
-            } else {
-                swprintf_s(bgColor, L"rgba(244, 245, 247, %.2f)", opacity);
-            }
-            container.set_style_attribute("background-color", bgColor);
+            container.set_style_attribute("background-color",
+                SciterHelper::FormatBackgroundColor(dark, opacity).c_str());
         }
         return;
     }
@@ -1450,13 +1455,8 @@ void SettingsDialog::initializeUI() {
         double opacity = backgroundOpacity_ / 100.0;
         sciter::dom::element container = root.find_first("#main-container");
         if (container.is_valid()) {
-            wchar_t bgColor[64];
-            if (dark) {
-                swprintf_s(bgColor, L"rgba(18, 20, 28, %.2f)", opacity);
-            } else {
-                swprintf_s(bgColor, L"rgba(244, 245, 247, %.2f)", opacity);
-            }
-            container.set_style_attribute("background-color", bgColor);
+            container.set_style_attribute("background-color",
+                SciterHelper::FormatBackgroundColor(dark, opacity).c_str());
         }
     }
 
