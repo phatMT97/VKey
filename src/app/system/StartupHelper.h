@@ -10,6 +10,7 @@
 #include <Windows.h>
 #include <ShlObj.h>
 #include <shellapi.h>
+#include <sddl.h>
 #include <exdisp.h>       // IShellWindows
 // Windows.h defines `ShellExecute` as a macro aliasing `ShellExecuteA/W`.
 // If the macro is active when <shldisp.h> is preprocessed, MIDL-declared
@@ -22,6 +23,7 @@
 #include <servprov.h>     // IServiceProvider
 #include <memory>
 #include <string>
+#include <vector>
 #include "UpdateSecurity.h"
 #include "core/config/ConfigManager.h"
 #include "core/SystemConfig.h"
@@ -233,7 +235,16 @@ inline void RemoveRegistryStartup() noexcept {
 /// Differences from CreateScheduledTaskElevated():
 ///   - Action: current VKey executable with --watchdog-task. The app verifies
 ///     the companion before launching it; Task Scheduler must not bypass that gate.
-///   - Trigger delay: 10s (let VKey come up first; main task uses 5s)
+///   - Trigger: -AtLogOn restricted to the specific user's SID (delay 10s).
+///   - Principal: Per-user SID with -LogonType Interactive -RunLevel Limited.
+///     Unlike CreateScheduledTaskElevated() (which uses BUILTIN\Administrators
+///     group S-1-5-32-544), the watchdog must run only for the user who enabled
+///     it, not every user on the system (BUILTIN\Users S-1-5-32-545 ran for all).
+///     We identify the user by SID string rather than name because -UserId with
+///     GetUserNameW breaks on Microsoft Accounts, domain accounts, and PIN logons
+///     (issue #261). The SID is read from the calling process token before
+///     spawning elevated PowerShell so over-the-shoulder UAC doesn't register the
+///     task under a different administrator account.
 ///   - Settings: RestartCount=3, RestartInterval=1min if the launch fails.
 ///   - Principal RunLevel: Limited (NOT Highest) — process supervisor doesn't
 ///     need elevation. Keeps AV calm, no UAC needed at logon.
@@ -247,6 +258,60 @@ inline void RemoveRegistryStartup() noexcept {
     const DWORD appLength = GetModuleFileNameW(nullptr, appPath, MAX_PATH);
     if (appLength == 0 || appLength >= MAX_PATH) return false;
 
+    // Over-the-shoulder UAC may elevate as a different admin account, so the
+    // user's SID must be resolved in the calling process rather than PowerShell.
+    std::wstring userSid;
+    {
+        HANDLE hToken = nullptr;
+        if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
+            return false;
+        }
+        struct ScopedTokenHandle {
+            HANDLE h = nullptr;
+            ~ScopedTokenHandle() noexcept {
+                if (h && h != INVALID_HANDLE_VALUE) {
+                    CloseHandle(h);
+                }
+            }
+        } tokenGuard{hToken};
+
+        DWORD tokenInfoLen = 0;
+        (void)GetTokenInformation(hToken, TokenUser, nullptr, 0, &tokenInfoLen);
+        if (tokenInfoLen == 0) {
+            return false;
+        }
+
+        std::vector<BYTE> tokenUserBuffer(tokenInfoLen);
+        if (!GetTokenInformation(hToken, TokenUser, tokenUserBuffer.data(), tokenInfoLen, &tokenInfoLen)) {
+            return false;
+        }
+
+        auto* pTokenUser = reinterpret_cast<TOKEN_USER*>(tokenUserBuffer.data());
+        LPWSTR rawSidString = nullptr;
+        if (!ConvertSidToStringSidW(pTokenUser->User.Sid, &rawSidString)) {
+            return false;
+        }
+        struct ScopedSidString {
+            HLOCAL p = nullptr;
+            ~ScopedSidString() noexcept {
+                if (p) {
+                    LocalFree(p);
+                }
+            }
+        } sidGuard{rawSidString};
+
+        userSid = rawSidString;
+    }
+
+    if (userSid.empty() || !userSid.starts_with(L"S-")) {
+        return false;
+    }
+    for (wchar_t c : userSid) {
+        if (c != L'S' && c != L'-' && (c < L'0' || c > L'9')) {
+            return false;
+        }
+    }
+
     // PowerShell registers the task. Watchdog runs at LIMITED RunLevel
     // (NOT Highest) — keeps AV calm, no UAC needed at logon.
     std::wstring ps1Args = L"-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -Command \"";
@@ -254,13 +319,10 @@ inline void RemoveRegistryStartup() noexcept {
     // Bare path — see CreateScheduledTaskElevated() (issue #210): quotes in the
     // <Command> field cause 0x2 "cannot find the file" at logon.
     ps1Args += L"$A = New-ScheduledTaskAction -Execute '" + EscapePowerShellSingleQuote(appPath) + L"' -Argument '" + WATCHDOG_TASK_FLAG + L"' -WorkingDirectory '" + EscapePowerShellSingleQuote(dirStr) + L"'; ";
-    ps1Args += L"$T = New-ScheduledTaskTrigger -AtLogOn; ";
+    ps1Args += L"$T = New-ScheduledTaskTrigger -AtLogOn -User '" + userSid + L"'; ";
     ps1Args += L"$T.Delay = 'PT10S'; ";  // 10s after logon — let VKey come up first
     ps1Args += L"$S = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0 -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1); ";
-    // Use the BUILTIN\Users group principal (well-known SID, see
-    // CreateScheduledTaskElevated) rather than a specific -UserId to ensure it
-    // triggers cleanly regardless of Microsoft Account / PIN authentication.
-    ps1Args += L"$P = New-ScheduledTaskPrincipal -GroupId 'S-1-5-32-545' -RunLevel Limited; ";
+    ps1Args += L"$P = New-ScheduledTaskPrincipal -UserId '" + userSid + L"' -LogonType Interactive -RunLevel Limited; ";
     ps1Args += L"Register-ScheduledTask -TaskName '" + std::wstring(WATCHDOG_TASK_NAME) + L"' -Action $A -Trigger $T -Settings $S -Principal $P -Force\"";
 
     SHELLEXECUTEINFOW sei = { sizeof(sei) };
