@@ -56,9 +56,6 @@ TEST_F(RustInputEngineTest, TelexComposesAndCommits) {
     EXPECT_EQ(engine.Count(), 0u);
 }
 
-// The published engine pin predates this contract. Its source and FFI tests
-// run in VKey-rs; exercise the adapter matrix against the local fixed artifact.
-#ifdef VKEY_TEST_UNRELEASED_ENGINE
 TEST_F(RustInputEngineTest, ContextualHornCompletionAndBackspaceThroughFfi) {
     const struct Case {
         const wchar_t* telex;
@@ -156,7 +153,6 @@ TEST_F(RustInputEngineTest, ScopedStrokeAndLocalRepetitionThroughFfi) {
         }
     }
 }
-#endif
 
 TEST_F(RustInputEngineTest, ShiftedBracketsPreserveUppercaseAndEscapeThroughFfi) {
     TypingConfig config;
