@@ -962,7 +962,17 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
             // External snippet expanders (PhraseExpress, AHK hotstrings) send injected
             // Backspace / Delete to delete trigger abbreviations directly in the host app.
             // VKey must NOT intercept, eat, or synthesize diffs for these deletion keys.
-            // Instead, reset active composition and pass the deletion key through to the app.
+            //
+            // Remote desktop and on-screen keyboards (TeamViewer, osk) send injected
+            // Backspace while typing. If the deletion is a pure one-char deletion matching the
+            // engine's composition in Unicode table, sync the engine to keep composition alive.
+            // Otherwise (re-render needed, VK_DELETE, empty composition, or non-Unicode),
+            // reset unconditionally to disarm undo state.
+            //
+            // Ordering risk / re-entrancy (#274, CODING_RULES 11-hook-system-rules.md): bypass runs before
+            // dispatcher_.IsSending() check below; SendMessageTimeoutW in synchronous
+            // edit/RichEdit injectors can re-enter this hook. If isSending is true, pass through
+            // untouched without modifying composition state.
             //
             // Normal printable keys (alpha, digits, space, punctuation) injected by
             // automation tools (AutoHotkey, Auto Keyboard, UI tests) MUST continue to
@@ -970,10 +980,41 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
             const bool isExternalInjected =
                 IsExternalInjectedKey(pKey->flags, pKey->dwExtraInfo, VKEY_EXTRA_INFO);
             if (ShouldBypassAndResetOnInjected(isExternalInjected, pKey->vkCode)) {
-                if (ShouldResetCompositionOnInjected(
-                        isExternalInjected, pKey->vkCode, isDown,
-                        self->engine_->Count(),
-                        !self->previousComposition_.empty())) {
+                const bool isSending = self->dispatcher_.IsSending();
+                const bool isUnicode =
+                    self->currentCodeTable_.load(std::memory_order_acquire) == CodeTable::Unicode;
+                const bool hasComposition =
+                    self->engine_->Count() > 0 && !self->previousComposition_.empty();
+
+                std::wstring newComposition;
+                if (isDown && !isSending && pKey->vkCode == VK_BACK && isUnicode && hasComposition) {
+                    self->engine_->Backspace();
+                    newComposition = self->engine_->Peek();
+                }
+
+                const InjectedDeletionAction action = DecideInjectedDeletionAction(
+                    hasComposition ? std::wstring_view{self->previousComposition_} : std::wstring_view{},
+                    newComposition,
+                    isUnicode,
+                    isSending,
+                    pKey->vkCode,
+                    isDown);
+
+                if (action == InjectedDeletionAction::SyncEngine) {
+                    HOOK_LOG(L"  EXTERNAL INJECTED BACKSPACE -> SyncEngine (prev='%s' new='%s')",
+                             self->previousComposition_.c_str(),
+                             newComposition.c_str());
+                    self->previousComposition_ = std::move(newComposition);
+                    self->CancelCommitUndo();
+                    self->ClearMacroUndo();
+                    if (!self->rawMacroBuffer_.empty()) {
+                        self->rawMacroBuffer_.pop_back();
+                        if (self->rawMacroBuffer_.empty()) self->ClearMacroBuffer();
+                    }
+                    if (self->engine_->Count() == 0) {
+                        self->digitLedWord_ = false;
+                    }
+                } else if (action == InjectedDeletionAction::Reset) {
                     HOOK_LOG(L"  EXTERNAL INJECTED DELETION (vk=0x%02X flags=0x%08X) -> ResetComposition",
                              pKey->vkCode, pKey->flags);
                     self->ResetComposition();

@@ -1,4 +1,4 @@
-// Tests for IsExternalInjectedKey and ShouldResetCompositionOnInjected — pure
+// Tests for IsExternalInjectedKey and DecideInjectedDeletionAction — pure
 // decision for external macro tool conflict resolution (issue #274).
 // HookEngine.cpp is Windows-only, so we test the extracted decision in isolation
 // (same pattern as LeakedKeyDuringSendDecisionTest).
@@ -8,9 +8,10 @@
 
 #include "core/ExternalInjectedKeyDecision.h"
 
+using NextKey::DecideInjectedDeletionAction;
+using NextKey::InjectedDeletionAction;
 using NextKey::IsExternalInjectedKey;
 using NextKey::ShouldBypassAndResetOnInjected;
-using NextKey::ShouldResetCompositionOnInjected;
 using NextKey::kInjectedFlagDefault;
 using NextKey::kInjectedFlagLowerIntegrity;
 using NextKey::kInjectedMask;
@@ -80,60 +81,210 @@ TEST(ExternalInjectedKeyDecision, Bypass_OnlyDeletionKeysFromExternalTools) {
 }
 
 // ── Composition Reset Decision ────────────────────────────────────────
-TEST(ExternalInjectedKeyDecision, ResetComposition_OnlyOnKeyDownWithActiveState) {
-    // Key-down with active engine composition on Backspace -> MUST reset
-    EXPECT_TRUE(ShouldResetCompositionOnInjected(
-        /*isExternalInjected=*/true,
-        /*vkCode=*/kVkBack,
-        /*isDown=*/true,
-        /*engineCount=*/4,
-        /*hasPreviousComposition=*/false));
+TEST(ExternalInjectedKeyDecision, InjectedDeletionAction_KeyUp_PassThroughOnly) {
+    // Key-up must never alter state regardless of key, composition, or sending state
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vieet",
+            /*newComposition=*/L"viee",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/false),
+        InjectedDeletionAction::PassThroughOnly);
 
-    // Key-down with active engine composition on Delete -> MUST reset
-    EXPECT_TRUE(ShouldResetCompositionOnInjected(
-        /*isExternalInjected=*/true,
-        /*vkCode=*/kVkDelete,
-        /*isDown=*/true,
-        /*engineCount=*/4,
-        /*hasPreviousComposition=*/false));
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vieet",
+            /*newComposition=*/L"viee",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkDelete,
+            /*isDown=*/false),
+        InjectedDeletionAction::PassThroughOnly);
+}
 
-    // Key-down with previous composition pending on Backspace -> MUST reset
-    EXPECT_TRUE(ShouldResetCompositionOnInjected(
-        /*isExternalInjected=*/true,
-        /*vkCode=*/kVkBack,
-        /*isDown=*/true,
-        /*engineCount=*/0,
-        /*hasPreviousComposition=*/true));
+TEST(ExternalInjectedKeyDecision, InjectedDeletionAction_IsSending_PassThroughOnly) {
+    // Re-entrancy guard: when injector is sending, touch NO state
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vieet",
+            /*newComposition=*/L"viee",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/true,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::PassThroughOnly);
 
-    // Key-down on printable typing key (e.g. 'A') -> NEVER reset on bypass check (#275)
-    EXPECT_FALSE(ShouldResetCompositionOnInjected(
-        /*isExternalInjected=*/true,
-        /*vkCode=*/kVkKeyA,
-        /*isDown=*/true,
-        /*engineCount=*/4,
-        /*hasPreviousComposition=*/false));
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vieet",
+            /*newComposition=*/L"viee",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/true,
+            /*vk=*/kVkDelete,
+            /*isDown=*/true),
+        InjectedDeletionAction::PassThroughOnly);
+}
 
-    // Key-up event -> NEVER reset (avoid duplicate reset on Down+Up pair)
-    EXPECT_FALSE(ShouldResetCompositionOnInjected(
-        /*isExternalInjected=*/true,
-        /*vkCode=*/kVkBack,
-        /*isDown=*/false,
-        /*engineCount=*/4,
-        /*hasPreviousComposition=*/true));
+TEST(ExternalInjectedKeyDecision, InjectedDeletionAction_SyncEngine_OnPureOneCharDeletion) {
+    // Pure one-character deletion in Unicode table keeps engine in sync with screen
+    // e.g. TeamViewer / OSK: "vieet" -> Backspace deletes 't' -> "viee"
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vieet",
+            /*newComposition=*/L"viee",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::SyncEngine);
 
-    // Key-down but engine and previous composition are already empty -> no reset needed
-    EXPECT_FALSE(ShouldResetCompositionOnInjected(
-        /*isExternalInjected=*/true,
-        /*vkCode=*/kVkBack,
-        /*isDown=*/true,
-        /*engineCount=*/0,
-        /*hasPreviousComposition=*/false));
+    // Vietnamese diacritic: "viêt" -> BS deletes 't' -> "viê"
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"viêt",
+            /*newComposition=*/L"viê",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::SyncEngine);
 
-    // Not an external injected key -> ShouldResetCompositionOnInjected returns false
-    EXPECT_FALSE(ShouldResetCompositionOnInjected(
-        /*isExternalInjected=*/false,
-        /*vkCode=*/kVkBack,
-        /*isDown=*/true,
-        /*engineCount=*/4,
-        /*hasPreviousComposition=*/true));
+    // Single character word: "a" -> BS deletes 'a' -> ""
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"a",
+            /*newComposition=*/L"",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::SyncEngine);
+
+    // "toán" -> BS deletes 'n' -> "toá"
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"toán",
+            /*newComposition=*/L"toá",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::SyncEngine);
+}
+
+TEST(ExternalInjectedKeyDecision, InjectedDeletionAction_Reset_OnReRenderOrToneMove) {
+    // Tone change or shift: e.g. "toán" -> "toan" is not a pure tail deletion
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"toán",
+            /*newComposition=*/L"toan",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::Reset);
+
+    // Tone change: "việ" -> "viê" (same length, tone removed)
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"việ",
+            /*newComposition=*/L"viê",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::Reset);
+
+    // Multi-char deletion
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vieet",
+            /*newComposition=*/L"vie",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::Reset);
+
+    // Different prefix
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vieet",
+            /*newComposition=*/L"xiee",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::Reset);
+
+    // Character appended rather than deleted
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vie",
+            /*newComposition=*/L"viee",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::Reset);
+}
+
+TEST(ExternalInjectedKeyDecision, InjectedDeletionAction_Reset_OnEmptyCompositionOrDeleteOrNonUnicode) {
+    // Empty composition MUST reset unconditionally to disarm undo state
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"",
+            /*newComposition=*/L"",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::Reset);
+
+    // VK_DELETE always resets unconditionally
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vieet",
+            /*newComposition=*/L"viee",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkDelete,
+            /*isDown=*/true),
+        InjectedDeletionAction::Reset);
+
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"",
+            /*newComposition=*/L"",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkDelete,
+            /*isDown=*/true),
+        InjectedDeletionAction::Reset);
+
+    // Non-Unicode code table (multi-unit encoding) always resets unconditionally
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vieet",
+            /*newComposition=*/L"viee",
+            /*isUnicodeTable=*/false,
+            /*isSending=*/false,
+            /*vk=*/kVkBack,
+            /*isDown=*/true),
+        InjectedDeletionAction::Reset);
+}
+
+TEST(ExternalInjectedKeyDecision, InjectedDeletionAction_PassThroughOnly_OnNonDeletionKey) {
+    // Non-deletion keys are not handled by deletion actions
+    EXPECT_EQ(
+        DecideInjectedDeletionAction(
+            /*prevComposition=*/L"vieet",
+            /*newComposition=*/L"viee",
+            /*isUnicodeTable=*/true,
+            /*isSending=*/false,
+            /*vk=*/kVkKeyA,
+            /*isDown=*/true),
+        InjectedDeletionAction::PassThroughOnly);
 }

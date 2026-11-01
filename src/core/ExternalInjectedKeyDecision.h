@@ -31,6 +31,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
 
 namespace NextKey {
 
@@ -60,26 +61,32 @@ inline constexpr uint32_t kVkDelete = 0x2Eu;  // VK_DELETE
     return vkCode == kVkBack || vkCode == kVkDelete;
 }
 
-[[nodiscard]] constexpr bool ShouldResetCompositionOnInjected(
-    bool isExternalInjected,
-    uint32_t vkCode,
-    bool isDown,
-    size_t engineCount,
-    bool hasPreviousComposition) noexcept {
-    if (!ShouldBypassAndResetOnInjected(isExternalInjected, vkCode) || !isDown) {
-        return false;
-    }
-    return engineCount > 0 || hasPreviousComposition;
-}
+enum class InjectedDeletionAction {
+    PassThroughOnly,
+    SyncEngine,
+    Reset,
+};
 
-// Overload for backwards compatibility with tests that don't pass vkCode
-[[nodiscard]] constexpr bool ShouldResetCompositionOnInjected(
-    bool isExternalInjected,
-    bool isDown,
-    size_t engineCount,
-    bool hasPreviousComposition) noexcept {
-    return ShouldResetCompositionOnInjected(
-        isExternalInjected, kVkBack, isDown, engineCount, hasPreviousComposition);
+[[nodiscard]] constexpr InjectedDeletionAction DecideInjectedDeletionAction(
+    std::wstring_view prevComposition,
+    std::wstring_view newComposition,
+    bool isUnicodeTable,
+    bool isSending,
+    uint32_t vk,
+    bool isDown) noexcept {
+    if (!isDown || isSending) {
+        return InjectedDeletionAction::PassThroughOnly;
+    }
+    if (vk == kVkBack && isUnicodeTable && !prevComposition.empty()) {
+        if (newComposition.size() + 1 == prevComposition.size() &&
+            prevComposition.starts_with(newComposition)) {
+            return InjectedDeletionAction::SyncEngine;
+        }
+    }
+    if (vk == kVkBack || vk == kVkDelete) {
+        return InjectedDeletionAction::Reset;
+    }
+    return InjectedDeletionAction::PassThroughOnly;
 }
 
 }  // namespace NextKey
