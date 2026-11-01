@@ -1,34 +1,26 @@
 cmake_minimum_required(VERSION 3.20)
 project(VKey VERSION 4.4.0 LANGUAGES CXX)
 
-# Git commit hash and build info
-execute_process(
-    COMMAND git rev-parse --short HEAD
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    OUTPUT_VARIABLE VKEY_GIT_COMMIT_HASH
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
-)
-if(NOT VKEY_GIT_COMMIT_HASH)
-    set(VKEY_GIT_COMMIT_HASH "unknown")
-endif()
+set(VKEY_GIT_VERSION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/GitVersion.h")
 
+# Generate once at configure time so header is immediately available
 execute_process(
-    COMMAND git status --porcelain
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    OUTPUT_VARIABLE VKEY_GIT_DIRTY
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
+    COMMAND ${CMAKE_COMMAND}
+        "-DOUTPUT=${VKEY_GIT_VERSION_HEADER}"
+        "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGitVersion.cmake"
 )
-if(VKEY_GIT_DIRTY)
-    set(VKEY_GIT_COMMIT_HASH "${VKEY_GIT_COMMIT_HASH}-dirty")
-endif()
 
-if(DEFINED ENV{GITHUB_RUN_NUMBER})
-    set(VKEY_CI_RUN_NUMBER "$ENV{GITHUB_RUN_NUMBER}")
-else()
-    set(VKEY_CI_RUN_NUMBER "")
-endif()
+# Custom target refreshes git hash and dirty status at build time
+add_custom_target(VKeyGitVersion
+    COMMAND ${CMAKE_COMMAND}
+        "-DOUTPUT=${VKEY_GIT_VERSION_HEADER}"
+        "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/GenerateGitVersion.cmake"
+    BYPRODUCTS "${VKEY_GIT_VERSION_HEADER}"
+    COMMENT "Refreshing git commit info"
+    VERBATIM
+)
 
 # Generate Version.h from Version.h.in — version is defined once in project() above.
 configure_file(
@@ -418,6 +410,10 @@ if(WIN32)
 endif()
 
 add_library(VKeyCore STATIC ${NEXTKEY_CORE_SOURCES})
+add_dependencies(VKeyCore VKeyGitVersion)
+target_include_directories(VKeyCore PUBLIC
+    "${CMAKE_CURRENT_BINARY_DIR}/generated"
+)
 target_include_directories(VKeyCore PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/extern/tomlplusplus
 )

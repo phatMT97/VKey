@@ -4,6 +4,7 @@
 #include "core/Logger.h"
 #include "core/PathUtil.h"
 #include "core/Version.h"
+#include "GitVersion.h"
 
 #include <clocale>
 #include <cstdio>

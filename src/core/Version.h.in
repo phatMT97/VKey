@@ -14,7 +14,5 @@
 #define VKEY_VERSION_PACKED ((VKEY_VERSION_MAJOR << 16) | (VKEY_VERSION_MINOR << 8) | VKEY_VERSION_PATCH)
 #define VKEY_VERSION_RC    VKEY_VERSION_MAJOR,VKEY_VERSION_MINOR,VKEY_VERSION_PATCH,0
 
-#define VKEY_GIT_HASH_STR  "@VKEY_GIT_COMMIT_HASH@"
-#define VKEY_GIT_HASH_WSTR L"@VKEY_GIT_COMMIT_HASH@"
-#define VKEY_CI_RUN_STR    "@VKEY_CI_RUN_NUMBER@"
-#define VKEY_CI_RUN_WSTR   L"@VKEY_CI_RUN_NUMBER@"
+// Git hash / CI run live in the build-time generated GitVersion.h: this
+// header is also read by rc.exe, which cannot evaluate __has_include.

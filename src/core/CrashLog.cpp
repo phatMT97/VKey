@@ -4,6 +4,7 @@
 #include "CrashLog.h"
 
 #include "Version.h"
+#include "GitVersion.h"
 
 #ifdef _WIN32
 #include <Windows.h>
