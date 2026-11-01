@@ -988,19 +988,23 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
             const bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
             const bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
 
-            // Issue #274: Bypass synthetic/injected events from other software
-            // (PhraseExpress, AutoHotkey, mouse/keyboard macro software).
-            // External events carry LLKHF_INJECTED (0x10) or LLKHF_LOWER_IL_INJECTED (0x02)
-            // without VKEY_EXTRA_INFO. On key-down, reset any active composition so stale
-            // buffer does not corrupt subsequent typing. Always pass through untouched.
+            // Issue #274 & #275: Handle synthetic/injected events from other software.
+            // External snippet expanders (PhraseExpress, AHK hotstrings) send injected
+            // Backspace / Delete to delete trigger abbreviations directly in the host app.
+            // VKey must NOT intercept, eat, or synthesize diffs for these deletion keys.
+            // Instead, reset active composition and pass the deletion key through to the app.
+            //
+            // Normal printable keys (alpha, digits, space, punctuation) injected by
+            // automation tools (AutoHotkey, Auto Keyboard, UI tests) MUST continue to
+            // ProcessKeyDown so Vietnamese diacritics are applied correctly (#275).
             const bool isExternalInjected =
                 IsExternalInjectedKey(pKey->flags, pKey->dwExtraInfo, VKEY_EXTRA_INFO);
-            if (isExternalInjected) {
+            if (ShouldBypassAndResetOnInjected(isExternalInjected, pKey->vkCode)) {
                 if (ShouldResetCompositionOnInjected(
-                        isExternalInjected, isDown,
+                        isExternalInjected, pKey->vkCode, isDown,
                         self->engine_->Count(),
                         !self->previousComposition_.empty())) {
-                    HOOK_LOG(L"  EXTERNAL INJECTED (vk=0x%02X flags=0x%08X) -> ResetComposition",
+                    HOOK_LOG(L"  EXTERNAL INJECTED DELETION (vk=0x%02X flags=0x%08X) -> ResetComposition",
                              pKey->vkCode, pKey->flags);
                     self->ResetComposition();
                 }

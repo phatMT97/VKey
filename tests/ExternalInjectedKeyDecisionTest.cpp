@@ -9,14 +9,19 @@
 #include "core/ExternalInjectedKeyDecision.h"
 
 using NextKey::IsExternalInjectedKey;
+using NextKey::ShouldBypassAndResetOnInjected;
 using NextKey::ShouldResetCompositionOnInjected;
 using NextKey::kInjectedFlagDefault;
 using NextKey::kInjectedFlagLowerIntegrity;
 using NextKey::kInjectedMask;
+using NextKey::kVkBack;
+using NextKey::kVkDelete;
 
 namespace {
 
 constexpr uintptr_t kVKeyExtraInfo = 0x4E4B;  // "NK" magic
+constexpr uint32_t kVkKeyA = 0x41u;           // 'A'
+constexpr uint32_t kVkSpace = 0x20u;          // Space
 
 }  // namespace
 
@@ -54,25 +59,64 @@ TEST(ExternalInjectedKeyDecision, ExternalInjectedKey_ClassifiedCorrectly) {
     EXPECT_TRUE(IsExternalInjectedKey(kKeyUpInjected, 0, kVKeyExtraInfo));
 }
 
+// ── Bypass Decision (Issue #274 vs #275) ──────────────────────────────
+TEST(ExternalInjectedKeyDecision, Bypass_OnlyDeletionKeysFromExternalTools) {
+    // External injected Backspace -> MUST bypass (PhraseExpress / AHK hotstrings, #274)
+    EXPECT_TRUE(ShouldBypassAndResetOnInjected(/*isExternalInjected=*/true, kVkBack));
+
+    // External injected Delete -> MUST bypass
+    EXPECT_TRUE(ShouldBypassAndResetOnInjected(/*isExternalInjected=*/true, kVkDelete));
+
+    // External injected printable typing keys -> MUST NOT bypass (#275, AutoHotkey / auto typing)
+    EXPECT_FALSE(ShouldBypassAndResetOnInjected(/*isExternalInjected=*/true, kVkKeyA));
+    EXPECT_FALSE(ShouldBypassAndResetOnInjected(/*isExternalInjected=*/true, kVkSpace));
+    EXPECT_FALSE(ShouldBypassAndResetOnInjected(/*isExternalInjected=*/true, 'D'));
+    EXPECT_FALSE(ShouldBypassAndResetOnInjected(/*isExternalInjected=*/true, 'F'));
+
+    // Physical keys -> NEVER bypass
+    EXPECT_FALSE(ShouldBypassAndResetOnInjected(/*isExternalInjected=*/false, kVkBack));
+    EXPECT_FALSE(ShouldBypassAndResetOnInjected(/*isExternalInjected=*/false, kVkDelete));
+    EXPECT_FALSE(ShouldBypassAndResetOnInjected(/*isExternalInjected=*/false, kVkKeyA));
+}
+
 // ── Composition Reset Decision ────────────────────────────────────────
 TEST(ExternalInjectedKeyDecision, ResetComposition_OnlyOnKeyDownWithActiveState) {
-    // Key-down with active engine composition -> MUST reset
+    // Key-down with active engine composition on Backspace -> MUST reset
     EXPECT_TRUE(ShouldResetCompositionOnInjected(
         /*isExternalInjected=*/true,
+        /*vkCode=*/kVkBack,
         /*isDown=*/true,
         /*engineCount=*/4,
         /*hasPreviousComposition=*/false));
 
-    // Key-down with previous composition pending -> MUST reset
+    // Key-down with active engine composition on Delete -> MUST reset
     EXPECT_TRUE(ShouldResetCompositionOnInjected(
         /*isExternalInjected=*/true,
+        /*vkCode=*/kVkDelete,
+        /*isDown=*/true,
+        /*engineCount=*/4,
+        /*hasPreviousComposition=*/false));
+
+    // Key-down with previous composition pending on Backspace -> MUST reset
+    EXPECT_TRUE(ShouldResetCompositionOnInjected(
+        /*isExternalInjected=*/true,
+        /*vkCode=*/kVkBack,
         /*isDown=*/true,
         /*engineCount=*/0,
         /*hasPreviousComposition=*/true));
 
+    // Key-down on printable typing key (e.g. 'A') -> NEVER reset on bypass check (#275)
+    EXPECT_FALSE(ShouldResetCompositionOnInjected(
+        /*isExternalInjected=*/true,
+        /*vkCode=*/kVkKeyA,
+        /*isDown=*/true,
+        /*engineCount=*/4,
+        /*hasPreviousComposition=*/false));
+
     // Key-up event -> NEVER reset (avoid duplicate reset on Down+Up pair)
     EXPECT_FALSE(ShouldResetCompositionOnInjected(
         /*isExternalInjected=*/true,
+        /*vkCode=*/kVkBack,
         /*isDown=*/false,
         /*engineCount=*/4,
         /*hasPreviousComposition=*/true));
@@ -80,6 +124,7 @@ TEST(ExternalInjectedKeyDecision, ResetComposition_OnlyOnKeyDownWithActiveState)
     // Key-down but engine and previous composition are already empty -> no reset needed
     EXPECT_FALSE(ShouldResetCompositionOnInjected(
         /*isExternalInjected=*/true,
+        /*vkCode=*/kVkBack,
         /*isDown=*/true,
         /*engineCount=*/0,
         /*hasPreviousComposition=*/false));
@@ -87,6 +132,7 @@ TEST(ExternalInjectedKeyDecision, ResetComposition_OnlyOnKeyDownWithActiveState)
     // Not an external injected key -> ShouldResetCompositionOnInjected returns false
     EXPECT_FALSE(ShouldResetCompositionOnInjected(
         /*isExternalInjected=*/false,
+        /*vkCode=*/kVkBack,
         /*isDown=*/true,
         /*engineCount=*/4,
         /*hasPreviousComposition=*/true));

@@ -6,30 +6,26 @@
 // on Linux (HookEngine.cpp itself is Windows-only). Mirrors the
 // LeakedKeyDuringSendDecision.h / CjkSwitchDecision.h pattern.
 //
-// ── The problem (Issue #274, PhraseExpress / macro tool conflict) ──
-// When third-party macro tools like PhraseExpress expand snippets (e.g., "bttb" ->
-// "bánh tráng Trảng Bàng"), they simulate Backspaces to delete the trigger abbreviation
-// and then paste/type the expansion.
-//
-// Because SendInput marks generated events with LLKHF_INJECTED (0x10) or
-// LLKHF_LOWER_IL_INJECTED (0x02) in KBDLLHOOKSTRUCT::flags, external tools send
-// injected events with dwExtraInfo == 0 (or their own IDs).
-//
-// VKey generates its own synthetic events stamped with VKEY_EXTRA_INFO ("NK" / 0x4E4B).
-// If HookEngine only checks dwExtraInfo == VKEY_EXTRA_INFO and fails to check
-// LLKHF_INJECTED, external backspaces and characters enter ProcessKeyDown as if they
-// were real physical user keystrokes. This causes VKey to eat backspaces, fire
-// Chromium bait sequences (U+202F + 2 BS), and race with external paste operations,
+// ── The problem (Issue #274 vs Issue #275) ──
+// Issue #274: Third-party snippet expanders like PhraseExpress expand snippets (e.g.,
+// "bttb" -> "bánh tráng Trảng Bàng") by sending Backspaces to delete the trigger
+// abbreviation directly in the target application, then pasting/typing the expansion.
+// If VKey intercepts and eats those external Backspaces with its own async diff /
+// Chromium bait sequence (U+202F + 2 BS), VKey races with the external paste operation,
 // cutting off the expansion text ("bttbbánh tráng Tr").
 //
-// ── The fix ──
-// 1. If an event has LLKHF_INJECTED or LLKHF_LOWER_IL_INJECTED set, AND dwExtraInfo is
-//    NOT VKEY_EXTRA_INFO, it is an external injected key.
-// 2. On key-down of an external injected event, if VKey has an active or previous
-//    composition, VKey resets composition immediately so stale state does not corrupt
-//    subsequent typing.
-// 3. All external injected events pass through untouched via CallNextHookEx without
-//    entering VKey's engine or hotkey matcher.
+// Issue #275: Automation and typing simulation tools like AutoHotkey (AHK), Auto Keyboard,
+// Macro Recorder, and UI test harnesses send character keys via SendInput (which Windows
+// stamps with LLKHF_INJECTED). If VKey bypasses ALL injected keys, these tools cannot
+// type Vietnamese at all (outputting raw ASCII like "dungf ahk gox thuwr...").
+//
+// ── The solution ──
+// 1. External injected deletion keys (VK_BACK, VK_DELETE):
+//    Bypass VKey's engine so the external tool's deletion reaches the host app directly.
+//    On key-down, reset any active composition so stale buffer does not corrupt subsequent text.
+// 2. External injected typing keys (alpha, digits, space, punctuation, etc.):
+//    Route normally through VKey's typing engine so Vietnamese diacritics are applied
+//    correctly for AHK and automation tools (identical to Unikey).
 
 #pragma once
 
@@ -42,6 +38,9 @@ inline constexpr uint32_t kInjectedFlagDefault = 0x00000010u;         // LLKHF_I
 inline constexpr uint32_t kInjectedFlagLowerIntegrity = 0x00000002u;  // LLKHF_LOWER_IL_INJECTED
 inline constexpr uint32_t kInjectedMask = kInjectedFlagDefault | kInjectedFlagLowerIntegrity;
 
+inline constexpr uint32_t kVkBack = 0x08u;    // VK_BACK
+inline constexpr uint32_t kVkDelete = 0x2Eu;  // VK_DELETE
+
 [[nodiscard]] constexpr bool IsExternalInjectedKey(
     uint32_t flags,
     uintptr_t dwExtraInfo,
@@ -52,15 +51,35 @@ inline constexpr uint32_t kInjectedMask = kInjectedFlagDefault | kInjectedFlagLo
     return dwExtraInfo != vkeyExtraInfo;
 }
 
+[[nodiscard]] constexpr bool ShouldBypassAndResetOnInjected(
+    bool isExternalInjected,
+    uint32_t vkCode) noexcept {
+    if (!isExternalInjected) {
+        return false;
+    }
+    return vkCode == kVkBack || vkCode == kVkDelete;
+}
+
+[[nodiscard]] constexpr bool ShouldResetCompositionOnInjected(
+    bool isExternalInjected,
+    uint32_t vkCode,
+    bool isDown,
+    size_t engineCount,
+    bool hasPreviousComposition) noexcept {
+    if (!ShouldBypassAndResetOnInjected(isExternalInjected, vkCode) || !isDown) {
+        return false;
+    }
+    return engineCount > 0 || hasPreviousComposition;
+}
+
+// Overload for backwards compatibility with tests that don't pass vkCode
 [[nodiscard]] constexpr bool ShouldResetCompositionOnInjected(
     bool isExternalInjected,
     bool isDown,
     size_t engineCount,
     bool hasPreviousComposition) noexcept {
-    if (!isExternalInjected || !isDown) {
-        return false;
-    }
-    return engineCount > 0 || hasPreviousComposition;
+    return ShouldResetCompositionOnInjected(
+        isExternalInjected, kVkBack, isDown, engineCount, hasPreviousComposition);
 }
 
 }  // namespace NextKey
