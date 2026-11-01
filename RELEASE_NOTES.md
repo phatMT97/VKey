@@ -13,7 +13,10 @@ Bản cập nhật tập trung cải thiện **gõ tắt, tương thích ứng d
 - Cải thiện giao diện sáng, bố cục, cuộn trang và trạng thái E/V.
 - Sửa lỗi cửa sổ phụ luôn nổi, mở trùng và đồng bộ trạng thái ghim.
 - Giữ nguyên nội dung đang gõ khi chuyển chế độ hoặc tạm tắt bộ gõ.
-- Cải thiện engine gõ tiếng Việt.
+- **Cải thiện engine gõ tiếng Việt nâng cao:**
+    - Giảm size của file dll.
+    - Tăng tốc độ nhận diện từ ngữ.
+    - Thêm khả năng nhận diện theo ngữ cảnh **(hiện tại vẫn chỉ hạn chế một số từ)**, ví dụ nếu gõ riêng d-d-i-e-u (đieu) -> điều, nếu trước đó có từ "nói" -> nói điêu (không có dấu huyền).
 
 ### 🛡️ VirusTotal
 Kết quả quét SHA-256 sẽ được cập nhật sau khi hoàn tất phát hành.
