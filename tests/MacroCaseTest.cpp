@@ -495,6 +495,46 @@ TEST(PlanMacroCasingRulesTest, SentenceCapsIsIndependentOfBothMacroOptions) {
     }
 }
 
+TEST(PlanMacroCasingRulesTest, CompositionMatchWithSentenceAutoCapsReportsSentenceCapped) {
+    PlanFixture f;
+    f.table[L"đc"] = L"được";
+    f.raw = L"ddc";
+    f.prevComp = L"Đc";
+    f.wasFirstCharAutoCapped = true;
+
+    for (bool macroCaps : {false, true}) {
+        for (bool titleCase : {false, true}) {
+            f.autoCaps = macroCaps;
+            f.titleCase = titleCase;
+            const auto plan = f.Run();
+            EXPECT_TRUE(plan.matched);
+            EXPECT_EQ(plan.expansion, L"Được");
+        }
+    }
+
+    // Multi-word expansion: sentence auto-caps capitalizes only first letter, never title-cases.
+    f.table[L"đc"] = L"được chưa";
+    for (bool macroCaps : {false, true}) {
+        for (bool titleCase : {false, true}) {
+            f.autoCaps = macroCaps;
+            f.titleCase = titleCase;
+            const auto plan = f.Run();
+            EXPECT_TRUE(plan.matched);
+            EXPECT_EQ(plan.expansion, L"Được chưa");
+        }
+    }
+
+    // When sentence auto-caps was not involved (user typed Shift for Đc), title case still works.
+    f.wasFirstCharAutoCapped = false;
+    f.autoCaps = true;
+    f.titleCase = true;
+    EXPECT_EQ(f.Run().expansion, L"Được Chưa");
+
+    f.autoCaps = false;
+    f.titleCase = false;
+    EXPECT_EQ(f.Run().expansion, L"được chưa");
+}
+
 TEST(PlanMacroCasingRulesTest, ExplicitKeysWinOverLowercaseFallbackAndSentenceCaps) {
     PlanFixture f;
     f.table = {{L"bbh", L"bún bò Huế"}, {L"Bbh", L"custom Initial"},

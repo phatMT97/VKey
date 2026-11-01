@@ -45,7 +45,7 @@ enum class CapsStyle { None, FirstLetter, Words, All };
         }
         // A single capital is an initial, even in a key such as "A1".
         if (allUpper && letters > 1) return CapsStyle::All;
-        if (initialUpper) return titleCase ? CapsStyle::Words : CapsStyle::FirstLetter;
+        if (initialUpper) return (titleCase && !sentenceCapped) ? CapsStyle::Words : CapsStyle::FirstLetter;
     }
     // Sentence auto-caps never implies title case, even with macro casing off.
     return sentenceCapped ? CapsStyle::FirstLetter : CapsStyle::None;
@@ -161,7 +161,7 @@ MacroPlan Plan(const PlanInputs& in, const CaseMapper& mapper) {
     if (!HasUpper(it->first, mapper)) {
         ApplyCaps(plan.expansion,
                   DetectCaps(typed, in.autoCapsEnabled, in.titleCaseEnabled,
-                             in.wasFirstCharAutoCapped && !matchedViaComposition, mapper),
+                             in.wasFirstCharAutoCapped, mapper),
                   mapper);
     }
 
