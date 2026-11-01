@@ -1,8 +1,8 @@
 VKEY-ENGINE-LOCK-V2
-abi_version=9
+abi_version=10
 target=windows-x86_64
 asset_name=vkey_engine.dll
 installed_name=vkey_engine.dll
-byte_len=1016320
-sha256=b2a1f9d97312b00215a7b6ec2e4ec5a32be0e09f6944aa8d114be0b2aa764e80
+byte_len=557056
+sha256=04ef5b5bac3e86db6227e858649625ef0392b2588ece28cde390962bcff0c000
 counter=1000001
