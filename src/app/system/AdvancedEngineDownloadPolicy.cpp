@@ -46,6 +46,11 @@ std::wstring BuildAdvancedEngineReleaseUrl() {
            L"v" VKEY_VERSION_WSTR L"/vkey_engine.dll";
 }
 
+std::wstring BuildAdvancedEngineReleasePageUrl() {
+    return L"https://github.com/phatMT97/VKey/releases/tag/"
+           L"v" VKEY_VERSION_WSTR;
+}
+
 std::wstring BuildAdvancedEngineSignatureUrl() {
     return BuildAdvancedEngineReleaseUrl() + L".sig";
 }

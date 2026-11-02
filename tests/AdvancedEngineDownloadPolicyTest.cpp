@@ -33,9 +33,14 @@ TEST(AdvancedEngineDownloadPolicyTest, DllKeepsItsOwnExactLengthAndRejectsTrunca
 TEST(AdvancedEngineDownloadPolicyTest, UsesCurrentReleaseTagAndExactAssetName) {
     EXPECT_EQ(BuildAdvancedEngineReleaseUrl(), std::wstring(L"https://github.com/phatMT97/VKey/releases/download/v") +
                                                    VKEY_VERSION_WSTR + L"/vkey_engine.dll");
+    EXPECT_EQ(BuildAdvancedEngineReleasePageUrl(), std::wstring(L"https://github.com/phatMT97/VKey/releases/tag/v") +
+                                                       VKEY_VERSION_WSTR);
 }
 
 TEST(AdvancedEngineDownloadPolicyTest, AllowsOnlyRequiredHttpsOrigins) {
+    EXPECT_TRUE(IsAllowedAdvancedEngineUrl(BuildAdvancedEngineReleaseUrl()));
+    EXPECT_TRUE(IsAllowedAdvancedEngineUrl(BuildAdvancedEngineReleasePageUrl()));
+    EXPECT_TRUE(IsAllowedAdvancedEngineUrl(BuildAdvancedEngineSignatureUrl()));
     EXPECT_TRUE(IsAllowedAdvancedEngineUrl(L"https://github.com/phatMT97/VKey/releases/"
                                            L"download/v4.3.0/vkey_engine.dll"));
     EXPECT_TRUE(IsAllowedAdvancedEngineUrl(L"https://objects.githubusercontent.com/"

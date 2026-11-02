@@ -352,7 +352,7 @@ HRESULT CALLBACK AdvancedEngineDialogCallback(
 }
 
 void OpenManualInstallFlow(HWND parent) {
-    const std::wstring url = BuildAdvancedEngineReleaseUrl();
+    const std::wstring url = BuildAdvancedEngineReleasePageUrl();
     const std::wstring directory = ModuleDirectory(nullptr);
 
     // Delegates the request to the default browser. VKey performs no network

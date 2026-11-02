@@ -28,6 +28,7 @@ private:
 };
 
 [[nodiscard]] std::wstring BuildAdvancedEngineReleaseUrl();
+[[nodiscard]] std::wstring BuildAdvancedEngineReleasePageUrl();
 
 /// The detached signature published beside the engine. Release verifies this
 /// instead of a baked hash, so an engine downloaded without it is unloadable.
