@@ -287,20 +287,51 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
             HandleBackspace();
             return KeyOutcome::Eat;
         } else if (!isCommitUndoExempt) {
-            // Any other key → cancel commit-undo.
+            // Any other key → handle trigger action or demote commit-undo.
             // Exempt keys (tone modifiers, ESC restore-raw) keep state Primed
             // so the downstream replay / restore handlers can read commitStack_.
             // Punctuation glued to the committed word ("ạ:" then "D" → "ạ😀")
             // can be merged by the host, so drop the stack instead of keeping
-            // it for a later BS-into-empty re-arm.
+            // it for a later BS-into-empty re-arm. Retyping space re-enters
+            // Ready so subsequent Backspace can prime the word again.
             const bool isTrigger = IsCommitTrigger(vkCode);
-            if (ShouldCancelPrimedOnTrigger(isTrigger,
-                                            isTrigger ? VkToMacroChar(vkCode) : L'\0')) {
-                HOOK_LOG(L"  commit-undo: cancel Primed — punctuation glued to committed word (vk=0x%02X)",
-                         vkCode);
-                CancelCommitUndo();
-            } else {
-                commitState_.SetIdle();
+            const wchar_t triggerChar = (vkCode == VK_SPACE)
+                ? L' '
+                : (isTrigger ? VkToMacroChar(vkCode) : L'\0');
+            switch (DecidePrimedTriggerAction(isTrigger, triggerChar)) {
+                case PrimedTriggerAction::Cancel:
+                    HOOK_LOG(L"  commit-undo: cancel Primed — punctuation glued to committed word (vk=0x%02X)",
+                             vkCode);
+                    CancelCommitUndo();
+                    break;
+                case PrimedTriggerAction::ReEnterReady:
+                    HOOK_LOG(L"  commit-undo: space in Primed — re-enter Ready (vk=0x%02X)",
+                             vkCode);
+                    commitState_.SetPendingTriggers(0);
+                    commitState_.SetGapEndsInGlyph(false);
+                    commitState_.SetReady();
+                    if (dispatcher_.SynthEventsPending() > 0) {
+                        HOOK_LOG(L"  commit-undo: space in Primed → Ready, re-inject after synthetics (pending=%d)",
+                                 dispatcher_.SynthEventsPending());
+                        InjectKey(vkCode);
+                        return KeyOutcome::Eat;
+                    }
+                    if (dispatcher_.IsSyncReplaceChannel()) {
+                        auto inj = dispatcher_.GetInjector();
+                        bool injOk;
+                        const wchar_t spaceChar = L' ';
+                        { PERF_SCOPE(::NextKey::Perf::Stage::Injector);
+                          injOk = inj->Replace(/*bs=*/0, std::wstring_view(&spaceChar, 1)); }
+                        if (injOk) {
+                            HOOK_LOG(L"  commit-undo: space in Primed via injector → Ready");
+                            return KeyOutcome::Eat;
+                        }
+                        HOOK_LOG(L"  commit-undo: space in Primed injector failed, passthrough");
+                    }
+                    return KeyOutcome::Pass;
+                case PrimedTriggerAction::Idle:
+                    commitState_.SetIdle();
+                    break;
             }
         }
     }

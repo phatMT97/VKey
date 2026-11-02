@@ -8,6 +8,9 @@
 
 #include "core/CommitUndoArmDecision.h"
 #include <gtest/gtest.h>
+#include <queue>
+#include <string>
+#include <string_view>
 
 using NextKey::CommitUndoArm;
 using NextKey::DecideCommitUndoArm;
@@ -18,6 +21,7 @@ namespace {
 // Win32 VK codes (kept local so the test documents the exact inputs).
 constexpr uint32_t VK_RETURN_ = 0x0D;
 constexpr uint32_t VK_SPACE_  = 0x20;
+constexpr uint32_t VK_BACK_   = 0x08;
 constexpr uint32_t VK_TAB_    = 0x09;
 constexpr uint32_t VK_ESCAPE_ = 0x1B;
 constexpr uint32_t VK_LEFT_   = 0x25;
@@ -118,7 +122,9 @@ TEST(CommitUndoArmDecisionTest, Enter_IsNot_Skip) {
 // one BS then erases several counted chars and the replay lands on a word that
 // is already gone ("k s ạ :D" → emoji → BS×3 → "d" rendered "k sajd").
 
+using NextKey::DecidePrimedTriggerAction;
 using NextKey::DecideReadyGapKey;
+using NextKey::PrimedTriggerAction;
 using NextKey::ReadyGapAction;
 using NextKey::ShouldCancelPrimedOnTrigger;
 
@@ -157,10 +163,23 @@ TEST(CommitUndoArmDecisionTest, ReadyGap_WordGluedToPunctuation_Cancels) {
 
 TEST(CommitUndoArmDecisionTest, Primed_GluedPunctuation_Cancels) {
     // "ạ " BS (space gone) + ':' → ':' now touches "ạ".
+    EXPECT_EQ(DecidePrimedTriggerAction(true, L':'), PrimedTriggerAction::Cancel);
+    EXPECT_EQ(DecidePrimedTriggerAction(true, L'2'), PrimedTriggerAction::Cancel);
     EXPECT_TRUE(ShouldCancelPrimedOnTrigger(true, L':'));
     EXPECT_TRUE(ShouldCancelPrimedOnTrigger(true, L'2'));
-    // Retyping the space, or a non-printable key, keeps Idle-with-stack.
+}
+
+TEST(CommitUndoArmDecisionTest, Primed_Space_ReEntersReady) {
+    // "đanh " BS (space gone, Primed) + Space → caret is in gap after word again.
+    // Must re-enter Ready so a subsequent BS can prime the word again.
+    EXPECT_EQ(DecidePrimedTriggerAction(true, L' '), PrimedTriggerAction::ReEnterReady);
     EXPECT_FALSE(ShouldCancelPrimedOnTrigger(true, L' '));
+}
+
+TEST(CommitUndoArmDecisionTest, Primed_NonPrintableOrNonTrigger_Idle) {
+    // Non-printable triggers (Tab, Esc) or non-trigger keys transition to Idle.
+    EXPECT_EQ(DecidePrimedTriggerAction(true, L'\0'), PrimedTriggerAction::Idle);
+    EXPECT_EQ(DecidePrimedTriggerAction(false, L'\0'), PrimedTriggerAction::Idle);
     EXPECT_FALSE(ShouldCancelPrimedOnTrigger(true, L'\0'));
     EXPECT_FALSE(ShouldCancelPrimedOnTrigger(false, L'\0'));
 }
@@ -198,6 +217,253 @@ TEST(CommitUndoArmDecisionTest, CaretNavigationKeysClassification) {
     EXPECT_FALSE(IsCaretNavigationKey(VK_TAB_));
     EXPECT_FALSE(IsCaretNavigationKey(VK_ESCAPE_));
     EXPECT_FALSE(IsCaretNavigationKey('A'));
+}
+
+// ── Keystroke sequence simulation: Commit-Undo FSM + Host Queue ──────────────
+//
+// Models the race condition between synchronous replacement (EM_REPLACESEL in
+// RichEdit/Win11 Notepad) and the host's asynchronous posted message queue
+// (WM_KEYDOWN).
+//
+// Scenario: "abc " committed → Backspace → Space → Backspace.
+//
+// In HEAD:
+//   - Backspace 1: in Ready → Primed; SyncReplace(1, "") deletes space → "abc".
+//   - Space: in Primed → Idle; posted to queue.
+//   - Backspace 2: in Idle → posted to queue.
+//   - Queue drains: Space then Backspace cancel out → "abc" (correct text, but
+//     FSM dropped to Idle so diacritics stopped working).
+//
+// In naive Primed → Ready fix (Fallthrough for Space):
+//   - Backspace 1: in Ready → Primed; SyncReplace(1, "") deletes space → "abc".
+//   - Space: in Primed → Ready; posted to queue (document still "abc"!).
+//   - Backspace 2: in Ready → Primed; SyncReplace(1, "") executes synchronously
+//     BEFORE the posted Space drains! Deletes 'c' → "ab".
+//   - Queue drains: Space is processed → "ab " (REGRESSION: 'c' lost!).
+//
+// In the proper fix:
+//   - Space re-entering Ready is sent via SyncReplace(0, " ") on sync channels,
+//     eating the physical key. Document becomes "abc " immediately.
+//   - Backspace 2: SyncReplace(1, "") deletes ' ' → "abc" (no 'c' lost!).
+
+struct HostQueueSimulator {
+    std::wstring document;
+    std::queue<wchar_t> postedQueue;
+    bool isSyncChannel = true;
+
+    void SyncReplace(size_t bs, std::wstring_view text) {
+        if (bs > document.size()) bs = document.size();
+        document.resize(document.size() - bs);
+        document.append(text);
+    }
+
+    void PostKey(wchar_t ch) {
+        postedQueue.push(ch);
+    }
+
+    void DrainOne() {
+        if (postedQueue.empty()) return;
+        wchar_t ch = postedQueue.front();
+        postedQueue.pop();
+        if (ch == L'\b') {
+            if (!document.empty()) document.pop_back();
+        } else {
+            document.push_back(ch);
+        }
+    }
+
+    void DrainAll() {
+        while (!postedQueue.empty()) {
+            DrainOne();
+        }
+    }
+};
+
+enum class SimulatedFsmState {
+    Idle,
+    Ready,
+    Primed,
+};
+
+struct CommitUndoSimOutcome {
+    enum class Outcome { Eat, Pass };
+    Outcome outcome;
+    SimulatedFsmState nextState;
+};
+
+// With the proper fix (Space in Primed uses SyncReplace when isSyncChannel == true):
+CommitUndoSimOutcome ProcessKeyFixed(SimulatedFsmState state, uint32_t vk,
+                                     HostQueueSimulator& host) {
+    if (state == SimulatedFsmState::Ready && vk == VK_BACK_) {
+        // BS in Ready with pendingTriggers == 0:
+        if (host.isSyncChannel) {
+            host.SyncReplace(1, L"");
+            return {CommitUndoSimOutcome::Outcome::Eat, SimulatedFsmState::Primed};
+        }
+        host.PostKey(L'\b');
+        return {CommitUndoSimOutcome::Outcome::Pass, SimulatedFsmState::Primed};
+    }
+    if (state == SimulatedFsmState::Primed && vk == VK_SPACE_) {
+        const auto action = DecidePrimedTriggerAction(true, L' ');
+        if (action == PrimedTriggerAction::ReEnterReady) {
+            if (host.isSyncChannel) {
+                host.SyncReplace(0, L" ");
+                return {CommitUndoSimOutcome::Outcome::Eat, SimulatedFsmState::Ready};
+            }
+            host.PostKey(L' ');
+            return {CommitUndoSimOutcome::Outcome::Pass, SimulatedFsmState::Ready};
+        }
+    }
+    if (state == SimulatedFsmState::Idle && vk == VK_BACK_) {
+        host.PostKey(L'\b');
+        return {CommitUndoSimOutcome::Outcome::Pass, SimulatedFsmState::Idle};
+    }
+    return {CommitUndoSimOutcome::Outcome::Pass, state};
+}
+
+// With the naive buggy Fallthrough (Space in Primed always posts to host queue):
+CommitUndoSimOutcome ProcessKeyBuggy(SimulatedFsmState state, uint32_t vk,
+                                     HostQueueSimulator& host) {
+    if (state == SimulatedFsmState::Ready && vk == VK_BACK_) {
+        if (host.isSyncChannel) {
+            host.SyncReplace(1, L"");
+            return {CommitUndoSimOutcome::Outcome::Eat, SimulatedFsmState::Primed};
+        }
+        host.PostKey(L'\b');
+        return {CommitUndoSimOutcome::Outcome::Pass, SimulatedFsmState::Primed};
+    }
+    if (state == SimulatedFsmState::Primed && vk == VK_SPACE_) {
+        const auto action = DecidePrimedTriggerAction(true, L' ');
+        if (action == PrimedTriggerAction::ReEnterReady) {
+            // BUG: falls through without SyncReplace, passing physical key to host queue!
+            host.PostKey(L' ');
+            return {CommitUndoSimOutcome::Outcome::Pass, SimulatedFsmState::Ready};
+        }
+    }
+    return {CommitUndoSimOutcome::Outcome::Pass, state};
+}
+
+TEST(CommitUndoArmDecisionTest, FastTyping_SpaceBackspaceSequence_FixedSyncChannelPreservesWord) {
+    HostQueueSimulator host;
+    host.document = L"abc ";
+    host.isSyncChannel = true;
+    auto state = SimulatedFsmState::Ready;
+
+    // 1. Backspace: Ready → Primed (space deleted via sync channel)
+    auto res = ProcessKeyFixed(state, VK_BACK_, host);
+    state = res.nextState;
+    EXPECT_EQ(res.outcome, CommitUndoSimOutcome::Outcome::Eat);
+    EXPECT_EQ(state, SimulatedFsmState::Primed);
+    EXPECT_EQ(host.document, L"abc");
+    EXPECT_TRUE(host.postedQueue.empty());
+
+    // 2. Space: Primed → Ready (space inserted via sync channel, physical key eaten)
+    res = ProcessKeyFixed(state, VK_SPACE_, host);
+    state = res.nextState;
+    EXPECT_EQ(res.outcome, CommitUndoSimOutcome::Outcome::Eat);
+    EXPECT_EQ(state, SimulatedFsmState::Ready);
+    EXPECT_EQ(host.document, L"abc ");
+    EXPECT_TRUE(host.postedQueue.empty());
+
+    // 3. Backspace: Ready → Primed (space deleted via sync channel)
+    res = ProcessKeyFixed(state, VK_BACK_, host);
+    state = res.nextState;
+    EXPECT_EQ(res.outcome, CommitUndoSimOutcome::Outcome::Eat);
+    EXPECT_EQ(state, SimulatedFsmState::Primed);
+    EXPECT_EQ(host.document, L"abc");
+    EXPECT_TRUE(host.postedQueue.empty());
+
+    // Draining queue has nothing left to process
+    host.DrainAll();
+    EXPECT_EQ(host.document, L"abc");
+}
+
+TEST(CommitUndoArmDecisionTest, FastTyping_SpaceBackspaceSequence_BuggyFallthroughReproducesCharLoss) {
+    HostQueueSimulator host;
+    host.document = L"abc ";
+    host.isSyncChannel = true;
+    auto state = SimulatedFsmState::Ready;
+
+    // 1. Backspace: Ready → Primed
+    auto res = ProcessKeyBuggy(state, VK_BACK_, host);
+    state = res.nextState;
+    EXPECT_EQ(state, SimulatedFsmState::Primed);
+    EXPECT_EQ(host.document, L"abc");
+
+    // 2. Space: Primed → Ready, but falls through to posted queue!
+    res = ProcessKeyBuggy(state, VK_SPACE_, host);
+    state = res.nextState;
+    EXPECT_EQ(res.outcome, CommitUndoSimOutcome::Outcome::Pass);
+    EXPECT_EQ(state, SimulatedFsmState::Ready);
+    EXPECT_EQ(host.document, L"abc");  // Not yet inserted in document!
+    EXPECT_EQ(host.postedQueue.size(), 1u);
+
+    // 3. Rapid Backspace: Ready → Primed via sync channel before posted Space drains!
+    res = ProcessKeyBuggy(state, VK_BACK_, host);
+    state = res.nextState;
+    EXPECT_EQ(res.outcome, CommitUndoSimOutcome::Outcome::Eat);
+    EXPECT_EQ(state, SimulatedFsmState::Primed);
+    EXPECT_EQ(host.document, L"ab");  // 'c' was deleted by mistake!
+
+    // Host finally drains posted queue: Space is inserted!
+    host.DrainAll();
+    EXPECT_EQ(host.document, L"ab ");  // Character loss reproduction: "ab " instead of "abc"
+}
+
+TEST(CommitUndoArmDecisionTest, FastTyping_SpaceBackspaceSequence_AsyncChannelPreservesWord) {
+    HostQueueSimulator host;
+    host.document = L"abc ";
+    host.isSyncChannel = false;
+    auto state = SimulatedFsmState::Ready;
+
+    // 1. Backspace: Ready → Primed (posted)
+    auto res = ProcessKeyFixed(state, VK_BACK_, host);
+    state = res.nextState;
+    EXPECT_EQ(res.outcome, CommitUndoSimOutcome::Outcome::Pass);
+    EXPECT_EQ(state, SimulatedFsmState::Primed);
+
+    // 2. Space: Primed → Ready (posted)
+    res = ProcessKeyFixed(state, VK_SPACE_, host);
+    state = res.nextState;
+    EXPECT_EQ(res.outcome, CommitUndoSimOutcome::Outcome::Pass);
+    EXPECT_EQ(state, SimulatedFsmState::Ready);
+
+    // 3. Backspace: Ready → Primed (posted)
+    res = ProcessKeyFixed(state, VK_BACK_, host);
+    state = res.nextState;
+    EXPECT_EQ(res.outcome, CommitUndoSimOutcome::Outcome::Pass);
+    EXPECT_EQ(state, SimulatedFsmState::Primed);
+
+    // Draining queue processes BS, Space, BS in strict FIFO order
+    host.DrainAll();
+    EXPECT_EQ(host.document, L"abc");
+}
+
+TEST(CommitUndoArmDecisionTest, FastTyping_MultiCycleRepetition_StaysConsistent) {
+    HostQueueSimulator host;
+    host.document = L"abc ";
+    host.isSyncChannel = true;
+    auto state = SimulatedFsmState::Ready;
+
+    for (int i = 0; i < 5; ++i) {
+        // BS → Primed
+        auto res = ProcessKeyFixed(state, VK_BACK_, host);
+        state = res.nextState;
+        EXPECT_EQ(state, SimulatedFsmState::Primed);
+        EXPECT_EQ(host.document, L"abc");
+
+        // Space → Ready
+        res = ProcessKeyFixed(state, VK_SPACE_, host);
+        state = res.nextState;
+        EXPECT_EQ(state, SimulatedFsmState::Ready);
+        EXPECT_EQ(host.document, L"abc ");
+    }
+
+    // Final BS to prime for diacritic modification
+    auto res = ProcessKeyFixed(state, VK_BACK_, host);
+    state = res.nextState;
+    EXPECT_EQ(state, SimulatedFsmState::Primed);
+    EXPECT_EQ(host.document, L"abc");
 }
 
 }  // namespace

@@ -164,11 +164,34 @@ enum class ReadyGapAction : uint8_t {
 
 /// Primed (gap already backspaced, caret right after the committed word): a
 /// printable non-space trigger now sits glued to that word — "ạ" + ":" + "D"
-/// becomes "ạ😀" in Teams — so the stack can no longer be trusted. A space or
-/// a non-printable key keeps the existing Idle-with-stack behaviour.
+/// becomes "ạ😀" in Teams — so the stack can no longer be trusted.
+/// Retyping a space puts the caret back in the gap after the committed word,
+/// so the window re-enters Ready. A non-printable trigger or non-trigger key
+/// transitions to Idle with stack preserved.
+enum class PrimedTriggerAction : uint8_t {
+    Cancel,        ///< Printable non-space trigger glued to committed word → drop window + stack.
+    ReEnterReady,  ///< Space re-typed after BS → caret is in gap again, re-enter Ready.
+    Idle,          ///< Non-printable trigger or non-trigger key → transition to Idle.
+};
+
+[[nodiscard]] constexpr PrimedTriggerAction DecidePrimedTriggerAction(
+    bool isCommitTrigger, wchar_t triggerChar) noexcept {
+    if (!isCommitTrigger) {
+        return PrimedTriggerAction::Idle;
+    }
+    if (triggerChar == L' ') {
+        return PrimedTriggerAction::ReEnterReady;
+    }
+    if (triggerChar > L' ') {
+        return PrimedTriggerAction::Cancel;
+    }
+    return PrimedTriggerAction::Idle;
+}
+
 [[nodiscard]] constexpr bool ShouldCancelPrimedOnTrigger(
     bool isCommitTrigger, wchar_t triggerChar) noexcept {
-    return isCommitTrigger && triggerChar > L' ';
+    return DecidePrimedTriggerAction(isCommitTrigger, triggerChar) ==
+           PrimedTriggerAction::Cancel;
 }
 
 /// True when a word the host replaces wholesale was just committed, so it must
