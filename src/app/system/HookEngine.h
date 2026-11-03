@@ -758,6 +758,7 @@ private:
     std::atomic<bool> macroEnabled_{false};
     std::atomic<bool> macroInEnglish_{false};
     bool tempMacroOff_ = false;       // Runtime: macro disabled for current word; same-thread (hook) only
+    bool macroUndoSuppressed_ = false;  // Restored shortcut after macro undo: next trigger must not re-expand it until edited
     bool macroCrossCommit_ = false;   // rawMacroBuffer_ spans multiple engine commits; same-thread (hook) only
     bool wasFirstCharAutoCapped_ = false;  // First char of current word was auto-capitalized by AutoCaps
     // (macroTable_ + spaceMacroKeys_ removed — Phase 3d. Live in

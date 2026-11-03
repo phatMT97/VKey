@@ -584,6 +584,14 @@ bool EngineController::HandleKey(ITfContext* pContext, UINT vkCode) {
                     const bool revived = pRevive->Revived();
                     pRevive->Release();
                     if (revived) {
+                        if (IsMacroTrackingEnabled()) {
+                            std::wstring seeded = Macro::RawBufferForRevive(rawMacroBuffer_, word);
+                            if (seeded != rawMacroBuffer_) {
+                                rawMacroBuffer_ = std::move(seeded);
+                                wasFirstCharAutoCapped_ = false;
+                            }
+                            TrackMacroCharacter(rawCh);
+                        }
                         TSF_LOG(L"HandleKey: revive '%ls' + '%lc'", word.c_str(), ch);
                         return true;
                     }
@@ -822,7 +830,7 @@ bool EngineController::HasMacroCandidate() const noexcept {
 
 void EngineController::ClearMacroTracking() noexcept {
     ResetMacroUndo();
-    tempMacroOff_ = false;
+    macroUndoSuppressed_ = false;
     rawMacroBuffer_.clear();
     wasFirstCharAutoCapped_ = false;
     macroCrossCommit_ = false;
@@ -835,6 +843,7 @@ void EngineController::ClearMacroTrackingAfterCommit() noexcept {
 void EngineController::TrackMacroCharacter(wchar_t ch) {
     if (!IsMacroTrackingEnabled() || ch == 0) return;
 
+    macroUndoSuppressed_ = false;
     rawMacroBuffer_ += ch;
     if (rawMacroBuffer_.size() > kMaxRawMacroBuffer) ClearMacroTracking();
 }
@@ -842,6 +851,7 @@ void EngineController::TrackMacroCharacter(wchar_t ch) {
 void EngineController::TrackMacroBackspace() noexcept {
     if (!IsMacroTrackingEnabled() || rawMacroBuffer_.empty()) return;
 
+    macroUndoSuppressed_ = false;
     rawMacroBuffer_.pop_back();
     if (rawMacroBuffer_.empty()) ClearMacroTracking();
 }
@@ -934,7 +944,7 @@ Macro::MacroPlan EngineController::EvaluateMacroPlan(const std::wstring& rawBuff
 bool EngineController::WouldExpandMacroTrigger(ITfContext* pContext,
                                                 UINT vkCode,
                                                 wchar_t triggerChar) const {
-    if (tempMacroOff_) return false;
+    if (macroUndoSuppressed_) return false;
     if (!Macro::IsCommitTrigger(vkCode) || !IsMacroTrackingEnabled()) return false;
     if (!Macro::ShouldTrigger(vkCode, activeConfig_.macroTriggerSpace, activeConfig_.macroTriggerEnter,
                               activeConfig_.macroTriggerTab, activeConfig_.macroTriggerDir)) {
@@ -954,7 +964,7 @@ bool EngineController::WouldExpandMacroTrigger(ITfContext* pContext,
 EngineController::MacroResult EngineController::HandleMacroTrigger(
     ITfContext* pContext, UINT vkCode, wchar_t triggerChar) {
     if (!Macro::IsCommitTrigger(vkCode)) return MacroResult::NoMatch;
-    if (tempMacroOff_) {
+    if (macroUndoSuppressed_) {
         ClearMacroTracking();
         return MacroResult::NoMatch;
     }
@@ -1094,7 +1104,7 @@ bool EngineController::UndoMacro(ITfContext* pContext) {
     }
     rawMacroBuffer_ = shortcut;
     macroCrossCommit_ = true;
-    tempMacroOff_ = true;
+    macroUndoSuppressed_ = true;
     TSF_LOG(L"UndoMacro: restored shortcut '%ls'", shortcut.c_str());
     return true;
 }

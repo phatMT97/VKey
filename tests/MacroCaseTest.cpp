@@ -898,6 +898,36 @@ TEST(MacroUndoTest, BackspaceUndoRejectsAmbiguousCharacterCounts) {
     EXPECT_FALSE(CanUndoWithBackspaces(L"\U0001F600"));
 }
 
+TEST(MacroReviveTest, RevivedWordJoinsRawBufferSoTailKeyCannotMatch) {
+    // Caret after committed "xin", untracked; "ko" revives into "xinko". A
+    // buffer of just "ko" would expand macro "ko" over all five characters.
+    PlanFixture f;
+    f.table[L"ko"] = L"không";
+    f.raw = RawBufferForRevive(L"", L"xin") + L"ko";
+    f.prevComp = L"xinko";
+    EXPECT_FALSE(f.Run().matched);
+}
+
+TEST(MacroReviveTest, StaleRawBufferIsReplacedByRevivedWord) {
+    EXPECT_EQ(RawBufferForRevive(L"abc", L"xin"), L"xin");
+}
+
+TEST(MacroReviveTest, EditedShortcutAfterUndoKeepsTrackedBufferAndExpands) {
+    // Issue #264: undo restored "bbm", Backspace left "bb", then 'h' revives
+    // "bb" — the cross-commit buffer already mirrors the word and is kept.
+    PlanFixture f;
+    f.table[L"bbm"] = L"bún bò Mỹ";
+    f.table[L"bbh"] = L"bún bò Huế";
+    f.raw = RawBufferForRevive(L"bb", L"bb") + L"h";
+    f.prevComp = L"bbh";
+    f.crossCommit = true;
+    const auto plan = f.Run();
+    ASSERT_TRUE(plan.matched);
+    EXPECT_EQ(plan.shortcut, L"bbh");
+    EXPECT_EQ(plan.expansion, L"bún bò Huế");
+    EXPECT_EQ(plan.bsCount, 3u);
+}
+
 TEST(PlanShortcutCaptureTest, CompositionMatchIncludesConsumedPunctuation) {
     PlanFixture f;
     f.table[L"vn."] = L"Việt Nam";

@@ -388,7 +388,7 @@ private:
         bool         active{false};
     };
     MacroUndoState macroUndoState_{};
-    bool tempMacroOff_{false};  // Do not immediately expand the restored shortcut.
+    bool macroUndoSuppressed_{false};  // Do not immediately expand the restored shortcut until modified.
     static constexpr DWORD kMacroUndoTimeoutMs = 4000;
 
     static constexpr DWORD kCommitUndoTimeoutMs = 1500;

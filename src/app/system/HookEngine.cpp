@@ -1854,7 +1854,7 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
         // snapshot. Local shared_ptr keeps both alive through the branch.
         auto cfgSnap = configSnapshot_.load(std::memory_order_acquire);
         if (macroOn && cfgSnap && !cfgSnap->macroTable.empty()
-            && !tempMacroOff_ && !rawMacroBuffer_.empty()) {
+            && !tempMacroOff_ && !macroUndoSuppressed_ && !rawMacroBuffer_.empty()) {
             wchar_t ch = VkToMacroChar(vkCode);
             if (ch > L' ') {
                 savedMacroBuffer = rawMacroBuffer_;
@@ -2476,6 +2476,7 @@ void HookEngine::ClearMacroBuffer() noexcept {
     rawMacroBuffer_.clear();
     wasFirstCharAutoCapped_ = false;
     macroCrossCommit_ = false;
+    macroUndoSuppressed_ = false;
 }
 
 void HookEngine::ClearMacroUndo() noexcept {
@@ -3267,7 +3268,8 @@ NextKey::Pipeline::MacroOutcome HookEngine::HandleMacro(
 
             rawMacroBuffer_ = shortcut;
             macroCrossCommit_ = true;
-            tempMacroOff_ = true;
+            macroUndoSuppressed_ = true;
+            tempMacroOff_ = false;
             HOOK_LOG(L"  macro-undo: reverted expansion to shortcut '%ls'", shortcut.c_str());
             return NextKey::Pipeline::MacroOutcome::Eat;
         } else if (vk != VK_BACK) {
@@ -3285,6 +3287,7 @@ NextKey::Pipeline::MacroOutcome HookEngine::HandleMacro(
         }
         // Track macro keys in English mode.
         if (vk >= 0x41 && vk <= 0x5A) {
+            macroUndoSuppressed_ = false;
             const bool upper = shift != capsLock;  // XOR
             rawMacroBuffer_ += upper ? static_cast<wchar_t>(vk)
                                       : towlower(static_cast<wchar_t>(vk));
@@ -3295,27 +3298,33 @@ NextKey::Pipeline::MacroOutcome HookEngine::HandleMacro(
                    && rawMacroBuffer_.empty()) {
             tempMacroOff_ = true;
             return NextKey::Pipeline::MacroOutcome::Pass;
-        } else if (IsCommitTrigger(vk) && !tempMacroOff_) {
-            const wchar_t triggerChar = VkToMacroChar(vk);
-            if (triggerChar > L' ') rawMacroBuffer_ += triggerChar;
-            if (!rawMacroBuffer_.empty() && IsMacroTrigger(vk)) {
-                auto result = TryExpandMacro(triggerChar);
-                if (result == MacroResult::ExpandedEatTrigger) {
-                    return NextKey::Pipeline::MacroOutcome::Eat;
-                }
-                if (result == MacroResult::ExpandedPassTrigger) {
-                    if (dispatcher_.SynthEventsPending() > 0) {
-                        InjectKey(vk);
-                        return NextKey::Pipeline::MacroOutcome::Eat;
-                    }
-                    return NextKey::Pipeline::MacroOutcome::Pass;
-                }
-            } else if (!IsMacroTrigger(vk)) {
-                // Disabled trigger still marks word boundary — clear buffer.
+        } else if (IsCommitTrigger(vk)) {
+            if (macroUndoSuppressed_) {
                 ClearMacroBuffer();
                 tempMacroOff_ = false;
+            } else if (!tempMacroOff_) {
+                const wchar_t triggerChar = VkToMacroChar(vk);
+                if (triggerChar > L' ') rawMacroBuffer_ += triggerChar;
+                if (!rawMacroBuffer_.empty() && IsMacroTrigger(vk)) {
+                    auto result = TryExpandMacro(triggerChar);
+                    if (result == MacroResult::ExpandedEatTrigger) {
+                        return NextKey::Pipeline::MacroOutcome::Eat;
+                    }
+                    if (result == MacroResult::ExpandedPassTrigger) {
+                        if (dispatcher_.SynthEventsPending() > 0) {
+                            InjectKey(vk);
+                            return NextKey::Pipeline::MacroOutcome::Eat;
+                        }
+                        return NextKey::Pipeline::MacroOutcome::Pass;
+                    }
+                } else if (!IsMacroTrigger(vk)) {
+                    // Disabled trigger still marks word boundary — clear buffer.
+                    ClearMacroBuffer();
+                    tempMacroOff_ = false;
+                }
             }
         } else if (vk == VK_BACK && !rawMacroBuffer_.empty()) {
+            macroUndoSuppressed_ = false;
             rawMacroBuffer_.pop_back();
             if (rawMacroBuffer_.empty()) ClearMacroBuffer();
         } else if (!(vk >= 0x41 && vk <= 0x5A) && !IsCommitTrigger(vk)) {
@@ -3329,6 +3338,7 @@ NextKey::Pipeline::MacroOutcome HookEngine::HandleMacro(
     // VN mode tracking — accumulate alpha + commit-trigger chars when macros loaded.
     if (macroOn && hasMacros) {
         if (vk >= 0x41 && vk <= 0x5A) {
+            macroUndoSuppressed_ = false;
             const bool upper = shift != capsLock;  // XOR
             rawMacroBuffer_ += upper ? static_cast<wchar_t>(vk)
                                       : towlower(static_cast<wchar_t>(vk));
@@ -3351,7 +3361,7 @@ NextKey::Pipeline::MacroOutcome HookEngine::HandleMacro(
     }
 
     // VN macro expansion — runs on commit trigger when buffer non-empty.
-    if (macroOn && hasMacros && !tempMacroOff_
+    if (macroOn && hasMacros && !tempMacroOff_ && !macroUndoSuppressed_
         && IsMacroTrigger(vk) && !rawMacroBuffer_.empty()) {
         const wchar_t triggerChar = VkToMacroChar(vk);
         auto result = TryExpandMacro(triggerChar);
@@ -3370,6 +3380,7 @@ NextKey::Pipeline::MacroOutcome HookEngine::HandleMacro(
     // Clean up macro buffer on word boundaries (commit triggers) and non-word keys in VN mode
     if (macroOn && hasMacros) {
         if (vk == VK_BACK && !rawMacroBuffer_.empty()) {
+            macroUndoSuppressed_ = false;
             rawMacroBuffer_.pop_back();
             if (rawMacroBuffer_.empty()) ClearMacroBuffer();
         } else if (IsCommitTrigger(vk)) {
@@ -3381,16 +3392,18 @@ NextKey::Pipeline::MacroOutcome HookEngine::HandleMacro(
             // (Regressed by 71b673d: this cleanup runs in HandleMacro, earlier in the pipeline
             // than step 8, so an unconditional clear here left step 8 nothing to preserve.)
             bool preserve = false;
-            if (vk == VK_SPACE && cfgSnap) {
-                // Reuse the member buffer's capacity instead of materializing a
-                // temporary `rawMacroBuffer_ + L' '` on every Space (hot path,
-                // Rule 11.2). IsSpaceMacroPrefix is noexcept and read-only, so the
-                // append/pop pair restores the buffer with no per-keystroke alloc.
-                rawMacroBuffer_.push_back(L' ');
-                preserve = IsSpaceMacroPrefix(rawMacroBuffer_, cfgSnap->macroPrefixIndex);
-                rawMacroBuffer_.pop_back();
-            } else if (IsMacroTrigger(vk)) {
-                preserve = VkToMacroChar(vk) > L' ';
+            if (!macroUndoSuppressed_) {
+                if (vk == VK_SPACE && cfgSnap) {
+                    // Reuse the member buffer's capacity instead of materializing a
+                    // temporary `rawMacroBuffer_ + L' '` on every Space (hot path,
+                    // Rule 11.2). IsSpaceMacroPrefix is noexcept and read-only, so the
+                    // append/pop pair restores the buffer with no per-keystroke alloc.
+                    rawMacroBuffer_.push_back(L' ');
+                    preserve = IsSpaceMacroPrefix(rawMacroBuffer_, cfgSnap->macroPrefixIndex);
+                    rawMacroBuffer_.pop_back();
+                } else if (IsMacroTrigger(vk)) {
+                    preserve = VkToMacroChar(vk) > L' ';
+                }
             }
             if (!preserve) {
                 ClearMacroBuffer();

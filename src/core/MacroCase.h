@@ -75,6 +75,12 @@ struct Segment {
 [[nodiscard]] bool IsTextProducingTrigger(uint32_t vkCode,
                                           wchar_t triggerChar) noexcept;
 
+/// Raw buffer to keep tracking from when a committed word is revived back into
+/// the composition. Plan() matches the raw buffer before the composition but
+/// sizes the replacement by the composition, so a buffer holding only the keys
+/// typed after the revive would let "xin" + "ko" expand macro "ko" over "xinko".
+[[nodiscard]] std::wstring RawBufferForRevive(std::wstring_view raw, std::wstring_view word);
+
 /// Backspace counts are reliable only for single-line, precomposed BMP text.
 [[nodiscard]] bool CanUndoWithBackspaces(std::wstring_view expansion) noexcept;
 

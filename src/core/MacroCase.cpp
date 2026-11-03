@@ -244,6 +244,10 @@ bool IsTextProducingTrigger(uint32_t vkCode, wchar_t triggerChar) noexcept {
         && (vkCode == 0x20 || triggerChar > L' ');
 }
 
+std::wstring RawBufferForRevive(std::wstring_view raw, std::wstring_view word) {
+    return std::wstring(raw.ends_with(word) ? raw : word);
+}
+
 bool CanUndoWithBackspaces(std::wstring_view expansion) noexcept {
     for (std::size_t i = 0; i < expansion.size(); ++i) {
         const auto ch = static_cast<uint32_t>(expansion[i]);

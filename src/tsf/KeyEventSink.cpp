@@ -326,6 +326,7 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
     // OnKeyDown pair never fired (rare TSF anomaly).
     lastTranslatedChar_ = 0;
     lastEnglishMacroObservedVk_ = 0;
+    lastPassthroughBsObservedVk_ = 0;
     lastMacroHandledVk_ = 0;
 
     if (vk != pendingClaimedSpaceVk_) {
@@ -575,6 +576,11 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
     if (!wantKey && wParam == VK_BACK && !pEngineController_->HasEngineBuffer()) {
         if (pEngineController_->PrepareBackspaceRevive(pContext)) {
             wantKey = true;
+        } else if (vk != lastEnglishMacroObservedVk_) {
+            // OnKeyDown never fires for a key the test phase leaves uneaten,
+            // so the passthrough BS must be tracked here.
+            pEngineController_->TrackMacroBackspace();
+            lastPassthroughBsObservedVk_ = vk;
         }
     }
 
@@ -736,6 +742,7 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
         lastMacroHandledVk_ = 0;
         lastMacroHandledEat_ = false;
         lastEnglishMacroObservedVk_ = 0;
+        lastPassthroughBsObservedVk_ = 0;
         if (eat) RememberClaimedSpaceKeyDown(vk, lParam);
         *pfEaten = eat ? TRUE : FALSE;
         return S_OK;
@@ -745,6 +752,7 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
         lastTestedVk_ = 0;
         lastTranslatedChar_ = 0;
         lastEnglishMacroObservedVk_ = 0;
+        lastPassthroughBsObservedVk_ = 0;
         // Known benign mismatch (maintainer accepted 2026-11-01): when UndoMacro
         // fails in OnKeyDown it returns pfEaten=FALSE although OnTestKeyDown
         // already reported eaten.
@@ -951,6 +959,10 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
     }
 
     if (!wantKey) {
+        if (vk == VK_BACK && vk != lastPassthroughBsObservedVk_) {
+            pEngineController_->TrackMacroBackspace();
+        }
+        lastPassthroughBsObservedVk_ = 0;
         if (IsCaretNavigationKey(vk)) {
             pEngineController_->ClearContext();
         }
@@ -1004,6 +1016,7 @@ void KeyEventSink::ClearInactiveKeyState() noexcept {
     lastWantKeyResult_ = false;
     lastTranslatedChar_ = 0;
     lastEnglishMacroObservedVk_ = 0;
+    lastPassthroughBsObservedVk_ = 0;
     lastMacroHandledVk_ = 0;
     lastMacroHandledEat_ = false;
     pEngineController_->ClearMacroTracking();
