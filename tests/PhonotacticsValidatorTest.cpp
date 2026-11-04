@@ -660,6 +660,21 @@ TEST_F(PhonotacticsValidatorEdgeTest, Oang_Valid) {
     EXPECT_EQ(V({T(L'o'), TM(L'a', Modifier::Breve), T(L'n'), T(L'g')}), SyllableState::Valid);
 }
 
+TEST_F(PhonotacticsValidatorEdgeTest, ThoangBreve_AllTonesValid) {
+    for (const auto tone : {Tone::None, Tone::Acute, Tone::Grave,
+                            Tone::Hook, Tone::Tilde, Tone::Dot}) {
+        EXPECT_EQ(V({T(L't'), T(L'h'), T(L'o'), TMT(L'a', Modifier::Breve, tone),
+                     T(L'n'), T(L'g')}), SyllableState::Valid);
+    }
+}
+
+TEST_F(PhonotacticsValidatorEdgeTest, ThoangBreve_RejectsInvalidCodaAndStopTone) {
+    EXPECT_EQ(V({T(L't'), T(L'h'), T(L'o'), TM(L'a', Modifier::Breve),
+                 T(L'n'), T(L'h')}), SyllableState::Invalid);
+    EXPECT_EQ(V({T(L't'), T(L'h'), T(L'o'), TMT(L'a', Modifier::Breve, Tone::Hook),
+                 T(L't')}), SyllableState::Invalid);
+}
+
 TEST_F(PhonotacticsValidatorEdgeTest, Uong_WithHorn) {
     // uống (uô + ng, with circumflex)
     EXPECT_EQ(V({T(L'u'), TM(L'o', Modifier::Circumflex), T(L'n'), T(L'g')}), SyllableState::Valid);

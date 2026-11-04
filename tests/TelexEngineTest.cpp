@@ -584,31 +584,37 @@ TEST_F(TelexEngineTest, Triphthong_UYU_ExtraU_NotExpandedToUO) {
     EXPECT_EQ(engine_->Peek(), L"khuyuu");
 }
 
-TEST_F(TelexEngineTest, Word_Ngoeoof_Produces_Ngoèo) {
+TEST_F(TelexEngineTest, Word_Ngoeoof_PreservesExtraO) {
     // oeo triphthong: 4th 'o' should NOT apply circumflex to 3rd 'o'
-    // ngoeo + o → ngoeoo (literal), then f → ngoèo
+    // ngoeo + o → ngoeoo (literal), then f → ngoèoo
     TypeString(*engine_, L"ngoeoof");
-    EXPECT_EQ(engine_->Peek(), L"ngoèo");
+    EXPECT_EQ(engine_->Peek(), L"ngoèoo");
 }
 
-TEST_F(TelexEngineTest, Triphthong_OEO_ExtraO_Consumed) {
-    // ngoeo + o: triphthong oeo complete, extra 'o' consumed (no-op)
+TEST_F(TelexEngineTest, Triphthong_OEO_ExtraO_IsLiteral) {
+    // The completed triphthong blocks circumflex, but preserves the extra key.
     TypeString(*engine_, L"ngoeo");
     EXPECT_EQ(engine_->Peek(), L"ngoeo");
     EXPECT_EQ(engine_->Count(), 5);
     engine_->PushChar(L'o');
-    EXPECT_EQ(engine_->Count(), 5);  // No new state added
-    EXPECT_EQ(engine_->Peek(), L"ngoeo");
+    EXPECT_EQ(engine_->Count(), 6);
+    EXPECT_EQ(engine_->Peek(), L"ngoeoo");
 }
 
-TEST_F(TelexEngineTest, Triphthong_OAO_ExtraO_Consumed) {
-    // ngoao + o: triphthong oao complete, extra 'o' consumed (no-op)
+TEST_F(TelexEngineTest, Triphthong_OAO_ExtraO_IsLiteral) {
     TypeString(*engine_, L"ngoao");
     EXPECT_EQ(engine_->Peek(), L"ngoao");
     EXPECT_EQ(engine_->Count(), 5);
     engine_->PushChar(L'o');
-    EXPECT_EQ(engine_->Count(), 5);  // No new state added
-    EXPECT_EQ(engine_->Peek(), L"ngoao");
+    EXPECT_EQ(engine_->Count(), 6);
+    EXPECT_EQ(engine_->Peek(), L"ngoaoo");
+}
+
+TEST_F(TelexEngineTest, Triphthong_UYA_ExtraA_IsLiteral) {
+    TypeString(*engine_, L"khuyaa");
+    EXPECT_EQ(engine_->Count(), 6);
+    EXPECT_EQ(engine_->Peek(), L"khuyaa");
+    EXPECT_EQ(engine_->Commit(), L"khuyaa");
 }
 
 TEST_F(TelexEngineTest, Word_Quo) {
@@ -4808,6 +4814,58 @@ TEST_F(EnglishProtectionTest, RepeatedO_NoCircumflex) {
 TEST_F(EnglishProtectionTest, RepeatedA_NoCircumflex) {
     TypeString(*engine_, L"aaaaaa");
     EXPECT_EQ(engine_->Peek(), L"aaaaa");
+}
+
+TEST_F(EnglishProtectionTest, CompletedTriphthongPreservesRepeatedVowel) {
+    for (const auto* word : {L"khuya", L"KHUYA", L"ngoeo", L"ngoao"}) {
+        SCOPED_TRACE(::testing::Message() << word);
+        TypingEngine engine(config_);
+        const std::wstring prefix(word);
+        TypeString(engine, prefix);
+        std::wstring expected = prefix;
+        for (int i = 0; i < 5; ++i) {
+            engine.PushChar(prefix.back());
+            expected.push_back(prefix.back());
+            EXPECT_EQ(engine.Peek(), expected);
+            EXPECT_EQ(engine.Count(), expected.size());
+        }
+        EXPECT_EQ(engine.PeekRaw(), expected);
+        engine.Backspace();
+        expected.pop_back();
+        EXPECT_EQ(engine.Peek(), expected);
+        EXPECT_EQ(engine.Commit(), expected);
+    }
+}
+
+TEST_F(EnglishProtectionTest, ThoangBreveTonesSurviveCommitInAnyKeyOrder) {
+    // #278 used a UserDefined map with the Telex actions and modern spelling.
+    for (const auto method : {InputMethod::Telex, InputMethod::SimpleTelex,
+                              InputMethod::Combined, InputMethod::UserDefined}) {
+        for (const bool modern : {false, true}) {
+            config_.inputMethod = method;
+            config_.modernOrtho = modern;
+            if (method == InputMethod::UserDefined) {
+                for (const wchar_t key : std::wstring(L"adefjorswxz")) {
+                    config_.customKeyMap[static_cast<size_t>(key)] =
+                        ClassifyKey(key, true, false);
+                }
+            }
+            for (const wchar_t toneKey : {L's', L'r'}) {
+                for (const auto* sequence : {L"thoangw_", L"thoawng_", L"thoaw_ng",
+                                             L"thoang_w", L"thoa_wng", L"tho_awng"}) {
+                    std::wstring input(sequence);
+                    input[input.find(L'_')] = toneKey;
+                    SCOPED_TRACE(::testing::Message() << input << " method="
+                        << static_cast<int>(method) << " modern=" << modern);
+                    TypingEngine engine(config_);
+                    TypeString(engine, input);
+                    const auto* expected = toneKey == L's' ? L"thoắng" : L"thoẳng";
+                    EXPECT_EQ(engine.Peek(), expected);
+                    EXPECT_EQ(engine.Commit(), expected);
+                }
+            }
+        }
+    }
 }
 
 TEST_F(EnglishProtectionTest, RepeatedE_NoCircumflex) {

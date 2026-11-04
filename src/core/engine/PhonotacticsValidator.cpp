@@ -634,6 +634,7 @@ SyllableState ValidateImpl(const CharStateT* states, size_t count, bool allowZwj
 
         // oe and oă only allow specific initial consonants:
         // "", ch, h, kh, l, ng, nh, t, tr, x
+        // oă also allows th (thoắng, thoẳng — #278).
         if (initialLen + 1 < count && states[initialLen].base == L'o' && states[initialLen].mod == Modifier::None) {
             bool isOeOrOa = false;
             if (states[initialLen + 1].base == L'e' && states[initialLen + 1].mod == Modifier::None) {
@@ -660,6 +661,8 @@ SyllableState ValidateImpl(const CharStateT* states, size_t count, bool allowZwj
                         (c0 == L'k' && c1 == L'h') ||
                         (c0 == L'n' && c1 == L'g') ||
                         (c0 == L'n' && c1 == L'h') ||
+                        (c0 == L't' && c1 == L'h' &&
+                         states[initialLen + 1].mod == Modifier::Breve) ||
                         (c0 == L't' && c1 == L'r')) {
                         allowed = true;
                     }

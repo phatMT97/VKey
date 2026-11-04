@@ -1028,12 +1028,13 @@ bool TypingEngine::HandleAdjacentCircumflex(TypingAction action, wchar_t c) {
         : lower;
 
     if (last.IsVowel() && last.base == targetBase) {
-        // Guard: don't apply circumflex if last 3 vowels form a triphthong
-        // e.g., "ngoeo" + 'o' → consume but don't modify (triphthong complete)
+        // A completed triphthong cannot take a circumflex on its last vowel.
+        // Let the key fall through as a literal so elongations such as
+        // "khuyaaaa" keep every typed vowel (#277).
         size_t n = states_.size();
         if (n >= 3 && states_[n - 3].IsVowel() && states_[n - 2].IsVowel() &&
             IsTriphthong(states_[n - 3].base, states_[n - 2].base, last.base)) {
-            return true;  // Consume keystroke, no state change
+            return false;
         }
         // Escape: already has circumflex (adjacent case — last char, no coda possible)
         if (last.mod == Modifier::Circumflex) {
