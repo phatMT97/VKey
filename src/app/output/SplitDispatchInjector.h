@@ -12,17 +12,19 @@
 #pragma once
 
 #include "IOutputInjector.h"
+#include "core/SuggestionDismissalDecision.h"
 
 namespace NextKey::Output {
 
 class SplitDispatchInjector final : public IOutputInjector {
 public:
-    explicit SplitDispatchInjector(int sleepMsBetweenBatches,
-                                   bool needsBaitCharPrefix = false,
-                                   bool hasMultiProcessRenderer = false,
-                                   bool requiresSyntheticAlphaLockstep = false) noexcept
+    explicit SplitDispatchInjector(
+        int sleepMsBetweenBatches,
+        SuggestionDismissalPolicy suggestionDismissal = SuggestionDismissalPolicy::None,
+        bool hasMultiProcessRenderer = false,
+        bool requiresSyntheticAlphaLockstep = false) noexcept
         : sleepMs_(sleepMsBetweenBatches),
-          needsBaitCharPrefix_(needsBaitCharPrefix),
+          suggestionDismissal_(suggestionDismissal),
           hasMultiProcessRenderer_(hasMultiProcessRenderer),
           requiresSyntheticAlphaLockstep_(
               hasMultiProcessRenderer || requiresSyntheticAlphaLockstep) {}
@@ -42,7 +44,7 @@ public:
     // console is single-process but still lockstep because ConPTY/TUI input
     // can reorder physical WM_KEYDOWN against synthetic VK_PACKET.
     bool NeedsBaitCharPrefix() const noexcept override {
-        return needsBaitCharPrefix_;
+        return suggestionDismissal_ == SuggestionDismissalPolicy::UnicodeBait;
     }
     bool HasMultiProcessRenderer() const noexcept override {
         return hasMultiProcessRenderer_;
@@ -53,13 +55,9 @@ public:
 
 private:
     int sleepMs_;
-    // WebView2 / Electron-on-Chromium hosts need the same U+202F
-    // autocomplete-dismiss prefix as Win32 Chromium browsers — the
-    // dispatch channel changes (split + Sleep) but the renderer-side
-    // suggest engine is the same Chromium one and still requires the
-    // bait. Without it, BS land into a still-open suggest popup and
-    // get swallowed.
-    bool needsBaitCharPrefix_;
+    // Preserve the host's Core policy even when a per-app override selects
+    // split dispatch: WebView2 needs Unicode bait, Excel needs a native VK.
+    SuggestionDismissalPolicy suggestionDismissal_;
     // True for Electron / Qt-on-Chromium hosts. Used only by leaked-key
     // suppression; console hosts remain false here.
     bool hasMultiProcessRenderer_;

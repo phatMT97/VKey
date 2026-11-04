@@ -29,7 +29,8 @@ protected:
         cls.pid = 10;
         cls.requestSerial = 7;
         cls.inputEpochAtRequest = 12;
-        cls.localNeedBait = browser;
+        cls.localSuggestionDismissal = browser ? SuggestionDismissalPolicy::UnicodeBait
+                                             : SuggestionDismissalPolicy::None;
         cls.localGameReinject = game;
         OutputDispatcher::PrepareFocusOutput(cls);
         return cls;
@@ -141,6 +142,26 @@ TEST_F(FocusOutputTest, UnpreparedResultLeavesCurrentOutputUntouched) {
     EXPECT_FALSE(dispatcher_.ApplyFocusOutput(
         unprepared, FocusApplyDisposition::ApplyNow, true));
     EXPECT_EQ(dispatcher_.GetInjector(), originalInjector);
+}
+
+TEST_F(FocusOutputTest, NativePolicySurvivesDispatcherAndFactoryForBothChannels) {
+    for (int splitSleep : {0, 6}) {
+        capturedInputs.clear();
+        FocusClassification cls{};
+        cls.localSuggestionDismissal = SuggestionDismissalPolicy::NativePrintablePrefix;
+        cls.localForcedSplitSleepMs = splitSleep;
+        OutputDispatcher::PrepareFocusOutput(cls);
+        ASSERT_TRUE(dispatcher_.ApplyFocusOutput(
+            cls, FocusApplyDisposition::ApplyNow, true));
+        EXPECT_FALSE(dispatcher_.WantsGameReinject());
+        ASSERT_TRUE(dispatcher_.GetInjector()->Replace(1, L"đ"));
+        ASSERT_EQ(capturedInputs.size(), 8u);
+        EXPECT_EQ(capturedInputs[0].ki.wVk, kNativePrintablePrefixVk);
+        EXPECT_EQ(capturedInputs[0].ki.dwFlags & KEYEVENTF_UNICODE, 0u);
+        EXPECT_EQ(capturedInputs[2].ki.wVk, VK_BACK);
+        EXPECT_EQ(capturedInputs[4].ki.wVk, VK_BACK);
+        EXPECT_EQ(capturedInputs[6].ki.wScan, L'đ');
+    }
 }
 
 }  // namespace

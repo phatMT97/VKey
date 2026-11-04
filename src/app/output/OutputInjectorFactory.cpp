@@ -9,7 +9,7 @@
 //   RichEditD2DPT        → RichEditEmReplaceSelInjector
 //   Electron             → SplitDispatchInjector(6 ms, multi-process renderer)
 //   Console              → SplitDispatchInjector(5 ms, single-process)
-//   default              → Win32SendInputInjector(isChromium)
+//   default              → Win32SendInputInjector(suggestionDismissal)
 #include "OutputInjectorFactory.h"
 
 #include "Win32SendInputInjector.h"
@@ -39,7 +39,7 @@ std::shared_ptr<IOutputInjector> Create(
     //   if c.isRichEditD2DPT      → RichEditEmReplaceSelInjector   [D2]
     //   if c.isElectron           → SplitDispatchInjector(6)       [D3]
     //   if c.isConsole            → SplitDispatchInjector(5)       [D3]
-    //   default                   → Win32SendInputInjector(c.isChromium)
+    //   default                   → Win32SendInputInjector(c.suggestionDismissal)
 
     if (c.forceEmReplaceSel) {
         return std::make_shared<RichEditEmReplaceSelInjector>(/*forced=*/true);
@@ -51,14 +51,14 @@ std::shared_ptr<IOutputInjector> Create(
         // Per-app "send method = compatibility split" (sendMethod 2/3). The
         // user's explicit choice wins over the auto-detected Electron/Console
         // sleeps below, but inherits their renderer traits so protections
-        // aren't lost: bait follows c.isChromium (Firefox's URL-bar inline
+        // aren't lost: bait follows c.suggestionDismissal (Firefox's URL-bar inline
         // autocomplete behaves like Chromium's), hasMultiProcessRenderer
         // follows c.isElectron, and console/Electron channels keep alpha
         // lockstep. The sleep (resolved in
         // FocusOwner) spans the renderer / remote-session round-trip the
         // split is there to outlast.
         return std::make_shared<SplitDispatchInjector>(
-            c.forcedSplitSleepMs, /*needsBaitCharPrefix=*/c.isChromium,
+            c.forcedSplitSleepMs, /*suggestionDismissal=*/c.suggestionDismissal,
             /*hasMultiProcessRenderer=*/c.isElectron,
             /*requiresSyntheticAlphaLockstep=*/c.isElectron || c.isConsole);
     }
@@ -72,17 +72,17 @@ std::shared_ptr<IOutputInjector> Create(
         // HookEngine — Electron's multi-process renderer reorders
         // physical WM_KEYDOWN against synthetic VK_PACKET.
         return std::make_shared<SplitDispatchInjector>(
-            kElectronSleepMs, c.isChromium, /*hasMultiProcessRenderer=*/true);
+            kElectronSleepMs, c.suggestionDismissal, /*hasMultiProcessRenderer=*/true);
     }
     if (c.isConsole) {
         // Console hosts are not multi-process renderers, but ConPTY-backed
         // TUIs can reorder physical WM_KEYDOWN against synthetic VK_PACKET.
         return std::make_shared<SplitDispatchInjector>(
-            kConsoleSleepMs, /*needsBaitCharPrefix=*/false,
+            kConsoleSleepMs, c.suggestionDismissal,
             /*hasMultiProcessRenderer=*/false,
             /*requiresSyntheticAlphaLockstep=*/true);
     }
-    return std::make_shared<Win32SendInputInjector>(c.isChromium);
+    return std::make_shared<Win32SendInputInjector>(c.suggestionDismissal);
 }
 
 }  // namespace NextKey::Output

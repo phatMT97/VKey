@@ -1,8 +1,8 @@
 // src/app/output/Win32SendInputInjector.cpp
 //
 // D1 implementation. Batch SendInput. Stack-buffer std::array (no heap
-// alloc on hot path). Bait-char prefix for Chromium autocomplete-dismiss
-// quirk (replicates HookEngine::SendBackspaces line ~3121).
+// alloc on hot path). Core plans the host-specific suggestion prefix and
+// its compensating Backspace.
 //
 // Spec: docs/plans/sprint-2-output-injector.md §2.2
 #include "Win32SendInputInjector.h"
@@ -20,107 +20,57 @@ namespace {
 // safety margin. Sized to fit a single SendInput batch comfortably.
 constexpr std::size_t kMaxBatch = 256;
 
-INPUT MakeKeyEvent(WORD vk, bool keyup,
-                   ULONG_PTR extraInfo = Internal::kVKeyExtraInfo) noexcept {
-    INPUT in{};
-    in.type = INPUT_KEYBOARD;
-    in.ki.wVk = vk;
-    in.ki.wScan = static_cast<WORD>(::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
-    in.ki.dwFlags = keyup ? KEYEVENTF_KEYUP : 0u;
-    if (Internal::IsExtendedKey(vk)) {
-        in.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
-    }
-    in.ki.dwExtraInfo = extraInfo;
-    return in;
-}
-
-INPUT MakeUnicodeChar(WCHAR ch, bool keyup,
-                      ULONG_PTR extraInfo = Internal::kVKeyExtraInfo) noexcept {
-    INPUT in{};
-    in.type = INPUT_KEYBOARD;
-    in.ki.wScan = static_cast<WORD>(ch);
-    in.ki.dwFlags = KEYEVENTF_UNICODE | (keyup ? KEYEVENTF_KEYUP : 0u);
-    in.ki.dwExtraInfo = extraInfo;
-    return in;
-}
-
 }  // namespace
 
 bool Win32SendInputInjector::Replace(std::size_t bsCount,
                                      std::wstring_view text,
                                      unsigned short reinjectVk) noexcept {
+    if (bsCount == 0 && text.empty() && reinjectVk == 0) return true;
+    if (bsCount > kMaxBatch / 2 || text.size() > kMaxBatch / 2) return false;
+
+    const std::size_t reinjectCount = reinjectVk != 0 ? 1u : 0u;
+    const auto heldMods = Internal::QueryHeldModifiers(bsCount, text, reinjectCount != 0);
+    const auto plan = Internal::PrepareSuggestionDismissal(
+        suggestionDismissal_, bsCount, text,
+        suggestKeepChars_.load(std::memory_order_acquire));
+    const std::size_t required = reinjectCount + heldMods.count * 2
+        + (plan.emitPrefix ? 2u : 0u) + plan.effectiveBsCount * 2 + text.size() * 2;
+    if (required > kMaxBatch) return false;
+
     std::array<INPUT, kMaxBatch> buf{};
     std::size_t i = 0;
-
-    // Game-compat re-inject leads the batch so user modifiers remain intact on
-    // key-down (see IOutputInjector::Replace). Held modifiers are released
-    // afterward so synthetic backspaces stay modifier-neutral.
-    // Key-down only: a sustained hold keeps sending downs to the game, and
-    // the physical key-up passes through the hook on release.
-    const std::size_t reinjectCount = (reinjectVk != 0) ? 1u : 0u;
+    // The game key must retain the user's modifiers; only the replacement
+    // after it is modifier-neutral. All capacity checks precede dispatch.
     if (reinjectCount != 0) {
-        buf[i++] = MakeKeyEvent(static_cast<WORD>(reinjectVk), /*keyup=*/false);
-    }
-
-    // Keep the entire synthetic replacement modifier-neutral: physical modifiers
-    // (Shift, Ctrl, Alt, Win) turn synthetic VK_BACK into destructive editor
-    // shortcuts (Shift+BS in Excel Web #225, Ctrl+BS word/line delete #267,
-    // Alt+BS Undo). Release held modifiers at the front of the batch and restore
-    // them at the tail before the hook resumes physical input.
-    const auto heldMods = Internal::QueryHeldModifiers(
-        bsCount, text, reinjectCount != 0);
-    for (std::size_t k = 0; k < heldMods.count; ++k) {
-        if (i + 1 > kMaxBatch) return false;
-        buf[i++] = MakeKeyEvent(heldMods.vks[k], /*keyup=*/true);
-    }
-
-    // Bait-char prefix (Chromium suggest-dismiss): inserts U+202F + an
-    // extra BS to delete it before the rest of the deletes/chars run.
-    // Predicate in Internal::ShouldEmitBait — pure-BS only skips bait
-    // when the user opts into the "BS giữ chữ khi có gợi ý" setting.
-    const bool emitBait = Internal::ShouldEmitBait(
-        needsBaitCharPrefix_, bsCount, text,
-        suggestKeepChars_.load(std::memory_order_acquire));
-    if (emitBait) {
-        if (i + 2 > kMaxBatch) return false;
-        buf[i++] = MakeUnicodeChar(0x202F, /*keyup=*/false);
-        buf[i++] = MakeUnicodeChar(0x202F, /*keyup=*/true);
-        ++bsCount;  // extra BS to delete the bait char
-    }
-
-    // Backspace events.
-    for (std::size_t k = 0; k < bsCount; ++k) {
-        if (i + 2 > kMaxBatch) return false;
-        buf[i++] = MakeKeyEvent(VK_BACK, /*keyup=*/false);
-        buf[i++] = MakeKeyEvent(VK_BACK, /*keyup=*/true);
-    }
-
-    // Char events.
-    for (WCHAR ch : text) {
-        if (i + 2 > kMaxBatch) return false;
-        buf[i++] = MakeUnicodeChar(ch, /*keyup=*/false);
-        buf[i++] = MakeUnicodeChar(ch, /*keyup=*/true);
+        buf[i++] = Internal::MakeKeyEvent(reinjectVk, false);
     }
     for (std::size_t k = 0; k < heldMods.count; ++k) {
-        if (i + 1 > kMaxBatch) return false;
-        buf[i++] = MakeKeyEvent(heldMods.vks[k], /*keyup=*/false);
+        buf[i++] = Internal::MakeKeyEvent(heldMods.vks[k], true);
     }
-
-    if (i == 0) return true;  // nothing to do (bsCount=0, text empty)
+    Internal::AppendSuggestionPrefix(buf.data(), i, plan);
+    for (std::size_t k = 0; k < plan.effectiveBsCount; ++k) {
+        Internal::AppendKeyPair(buf.data(), i, VK_BACK);
+    }
+    for (WCHAR ch : text) Internal::AppendUnicodePair(buf.data(), i, ch);
+    const auto restoreStart = i;
+    for (std::size_t k = 0; k < heldMods.count; ++k) {
+        buf[i++] = Internal::MakeKeyEvent(heldMods.vks[k], false);
+    }
 
     UINT sent = 0;
     const bool delivered = Internal::TrackedSendInput(
         buf.data(), static_cast<UINT>(i), &sent);
-    if (!delivered && heldMods.count > 0 && sent > 0) {
-        Internal::RestoreModifiersAfterPartialSend(heldMods, sent, reinjectCount, i - heldMods.count);
+    if (!delivered) {
+        Internal::RecoverAfterPartialSend({buf.data(), i}, sent, heldMods,
+                                           reinjectCount, restoreStart);
     }
     return delivered;
 }
 
 void Win32SendInputInjector::SendKey(unsigned short vkCode) noexcept {
     INPUT events[2] = {
-        MakeKeyEvent(static_cast<WORD>(vkCode), /*keyup=*/false),
-        MakeKeyEvent(static_cast<WORD>(vkCode), /*keyup=*/true),
+        Internal::MakeKeyEvent(static_cast<WORD>(vkCode), /*keyup=*/false),
+        Internal::MakeKeyEvent(static_cast<WORD>(vkCode), /*keyup=*/true),
     };
     // Fire-and-forget; partial-send detection logged by TrackedSendInput
     // but not actionable for SendKey (re-inject single key has no clean

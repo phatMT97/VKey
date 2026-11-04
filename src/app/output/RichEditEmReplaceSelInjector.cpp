@@ -85,13 +85,13 @@ bool RichEditEmReplaceSelInjector::Replace(std::size_t backspaceCount,
 
     HWND targetWindow = ResolveFocusedHwnd();
     if (!targetWindow) {
-        Win32SendInputInjector fallbackInjector(false);
+        Win32SendInputInjector fallbackInjector(SuggestionDismissalPolicy::None);
         return fallbackInjector.Replace(backspaceCount, text, reinjectVk);
     }
 
     wchar_t className[64] = {};
     if (::GetClassNameW(targetWindow, className, _countof(className)) == 0) {
-        Win32SendInputInjector fallbackInjector(false);
+        Win32SendInputInjector fallbackInjector(SuggestionDismissalPolicy::None);
         return fallbackInjector.Replace(backspaceCount, text, reinjectVk);
     }
 
@@ -100,7 +100,7 @@ bool RichEditEmReplaceSelInjector::Replace(std::size_t backspaceCount,
             ::NextKey::Logger::Log(L"[Hook] RichEditEmReplaceSelInjector: class '%ls' not compatible, falling back to SendInput BS=%zu",
                                    className, backspaceCount);
         }
-        Win32SendInputInjector fallbackInjector(false);
+        Win32SendInputInjector fallbackInjector(SuggestionDismissalPolicy::None);
         return fallbackInjector.Replace(backspaceCount, text, reinjectVk);
     }
 
@@ -175,7 +175,7 @@ void RichEditEmReplaceSelInjector::SendKey(unsigned short vkCode) noexcept {
     // any pending posted synth in the OS input queue. Sent-message
     // delivery would land BEFORE (different queue), breaking InjectKey's
     // contract at HookEngine line ~905.
-    Win32SendInputInjector(/*needsBaitCharPrefix=*/false).SendKey(vkCode);
+    Win32SendInputInjector(SuggestionDismissalPolicy::None).SendKey(vkCode);
 }
 
 }  // namespace NextKey::Output

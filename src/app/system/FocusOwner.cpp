@@ -622,11 +622,15 @@ FocusClassification FocusOwner::Classify(HWND triggerHwnd,
     // without bait (0/absent = default Win32 batch path). Auto-detected
     // WebView2 hosts keep the bait; 6 is the per-app opt-out for hosts such as
     // embedded terminals where the bait char is lost or leaks.
+    const bool isExcel = _wcsicmp(cls.exeName.c_str(), L"excel.exe") == 0;
+    const bool isOutlook = cls.exeName.find(L"outlook") != std::wstring::npos;
     bool forceNoBait = false;
+    std::int8_t sendMethodOverride = 0;
     if (!cls.exeName.empty() && ctx.snap) {
         auto it = ctx.snap->appSendMethodOverrides.find(cls.exeName);
         if (it != ctx.snap->appSendMethodOverrides.end()) {
-            switch (it->second) {
+            sendMethodOverride = it->second;
+            switch (sendMethodOverride) {
                 case 1: cls.localUseClipboardInjector = true;                 break;
                 case 2: cls.localForcedSplitSleepMs = kCompatSplitFirefoxMs;  break;
                 case 3: cls.localForcedSplitSleepMs = kCompatSplitRemoteMs;   break;
@@ -638,7 +642,9 @@ FocusClassification FocusOwner::Classify(HWND triggerHwnd,
                 // app), which is what keeps "game + clipboard" and
                 // "game + EM_REPLACESEL" — combinations whose re-inject
                 // accounting has no sensible answer — unreachable.
-                case 5: cls.localGameReinject = true;                         break;
+                // Excel used to require the game workaround (#279). Its
+                // native dismissal prefix now owns the extra-char accounting.
+                case 5: cls.localGameReinject = !isExcel;                     break;
                 case 6:
                     cls.localForcedSplitSleepMs = kCompatSplitWebViewMs;
                     forceNoBait = true;
@@ -650,12 +656,15 @@ FocusClassification FocusOwner::Classify(HWND triggerHwnd,
 
     // Dispatch-shape derivation. See OnFocusChanged's pre-Phase-2b comments
     // for the per-host rationale (bait char, split dispatch, edit message
-    // path, clipboard fallback). Preserved verbatim — this is data the
+    // path, clipboard fallback). This is data the
     // hook hot path will read via the IOutputInjector picked in Apply.
     cls.localSkipEmpty = cls.isElectron || cls.isConsole || forceNoBait;
-    cls.localNeedBait  = forceNoBait ? false : cls.isBrowser;
+    cls.localSuggestionDismissal = DecideSuggestionDismissalPolicy(
+        cls.isBrowser, isOutlook, isExcel, forceNoBait, sendMethodOverride);
     cls.localClipboard = cls.isVB6;
-    if (!cls.localSkipEmpty && !cls.localNeedBait && !cls.localClipboard) {
+    if (!cls.localSkipEmpty &&
+        cls.localSuggestionDismissal == SuggestionDismissalPolicy::None &&
+        !cls.localClipboard) {
         if (!cls.exeName.empty()) {
             if (_wcsicmp(cls.exeName.c_str(), L"zed.exe") == 0) {
                 cls.localSkipEmpty = true;
@@ -665,19 +674,15 @@ FocusClassification FocusOwner::Classify(HWND triggerHwnd,
                 // batching causes here. Classic Notepad benefits too (single undo entry).
                 cls.localEditMsg = true;
             } else {
-                const bool isOutlook = cls.exeName.find(L"outlook") != std::wstring::npos;
-                const bool isExcel   = cls.exeName.find(L"excel") != std::wstring::npos;
-                // #252: Excel formula suggestions are dropdowns; the U+202F
-                // inline-suggestion bait can leak into the cell as a tofu glyph.
-                // Keep Excel out of both Office bait and WebView2 promotion.
-                cls.localNeedBait = isOutlook;
+                // Keep Office's explicit policies out of WebView2 promotion.
                 if (!isExcel && !isOutlook) {
                     if (!cached) {
                         std::wstring exeFullPath = GetExeFullPathForHwnd(activeHwnd);
                         isWebView2 = IsWebView2App(activeHwnd, exeFullPath);
                     }
                     if (isWebView2) {
-                        cls.localNeedBait = true;
+                        cls.localSuggestionDismissal = DecideSuggestionDismissalPolicy(
+                            true, false, false, forceNoBait, sendMethodOverride);
                         cls.localSkipEmpty = false;
                     }
                 }

@@ -20,85 +20,44 @@ namespace {
 
 constexpr std::size_t kMaxBatch = 256;
 
-// Helpers are intentionally local so each injector owns its event construction.
-INPUT MakeKey(WORD vk, bool keyup) noexcept {
-    INPUT in{};
-    in.type = INPUT_KEYBOARD;
-    in.ki.wVk = vk;
-    in.ki.wScan = static_cast<WORD>(::MapVirtualKeyW(vk, MAPVK_VK_TO_VSC));
-    in.ki.dwFlags = keyup ? KEYEVENTF_KEYUP : 0u;
-    if (Internal::IsExtendedKey(vk)) {
-        in.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
-    }
-    in.ki.dwExtraInfo = Internal::kVKeyExtraInfo;
-    return in;
-}
-
-INPUT MakeUnicodeChar(WCHAR ch, bool keyup) noexcept {
-    INPUT in{};
-    in.type = INPUT_KEYBOARD;
-    in.ki.wScan = static_cast<WORD>(ch);
-    in.ki.dwFlags = KEYEVENTF_UNICODE | (keyup ? KEYEVENTF_KEYUP : 0u);
-    in.ki.dwExtraInfo = Internal::kVKeyExtraInfo;
-    return in;
-}
-
 }  // namespace
 
 bool SplitDispatchInjector::Replace(std::size_t bsCount,
                                     std::wstring_view text,
                                     unsigned short reinjectVk) noexcept {
-    // Validate both batches before sending any destructive backspaces.
-    if (text.size() > kMaxBatch / 2) return false;
-    // Batch 1: bait char (Chromium suggest-dismiss, when applicable) +
-    // backspaces. Predicate shared with Win32SendInputInjector via
-    // Internal::ShouldEmitBait — WebView2 / Electron-on-Chromium hosts
-    // inherit the same selection-eat quirk as Edge's omnibox.
-    std::array<INPUT, kMaxBatch> bsBuf{};
-    std::size_t bi = 0;
-    // Game-compat re-inject leads batch 1 so user modifiers remain intact on
-    // key-down (see IOutputInjector::Replace). Held modifiers are released
-    // afterward so synthetic backspaces stay modifier-neutral.
-    // Reached only via the per-app "compatibility split" override (sendMethod 2/3)
-    // on a non-Electron, non-console host — auto-detected Electron/console set
-    // localSkipEmpty, which zeroes reinjectVk upstream in HandleAlphaKey.
-    const std::size_t reinjectCount = (reinjectVk != 0) ? 1u : 0u;
-    if (reinjectCount != 0) {
-        bsBuf[bi++] = MakeKey(static_cast<WORD>(reinjectVk), /*keyup=*/false);
-    }
-    // See Win32SendInputInjector::Replace: synthetic Backspace must not inherit
-    // physically held modifiers (Shift #225, Ctrl/Alt/Win #267). Restore
-    // modifiers in this first batch before the optional inter-batch sleep.
+    if (bsCount == 0 && text.empty() && reinjectVk == 0) return true;
+    // Both batches must fit before any destructive input is dispatched.
+    if (bsCount > kMaxBatch / 2 || text.size() > kMaxBatch / 2) return false;
+    const std::size_t reinjectCount = reinjectVk != 0 ? 1u : 0u;
     const auto heldMods = Internal::QueryHeldModifiers(bsCount, L"", reinjectCount != 0);
-    for (std::size_t k = 0; k < heldMods.count; ++k) {
-        if (bi + 1 > kMaxBatch) return false;
-        bsBuf[bi++] = MakeKey(heldMods.vks[k], /*keyup=*/true);
-    }
-    const bool emitBait = Internal::ShouldEmitBait(
-        needsBaitCharPrefix_, bsCount, text,
+    const auto plan = Internal::PrepareSuggestionDismissal(
+        suggestionDismissal_, bsCount, text,
         suggestKeepChars_.load(std::memory_order_acquire));
-    if (emitBait) {
-        if (bi + 2 > kMaxBatch) return false;
-        bsBuf[bi++] = MakeUnicodeChar(0x202F, /*keyup=*/false);
-        bsBuf[bi++] = MakeUnicodeChar(0x202F, /*keyup=*/true);
-        ++bsCount;  // extra BS to delete the bait char
-    }
-    for (std::size_t k = 0; k < bsCount; ++k) {
-        if (bi + 2 > kMaxBatch) return false;
-        bsBuf[bi++] = MakeKey(VK_BACK, /*keyup=*/false);
-        bsBuf[bi++] = MakeKey(VK_BACK, /*keyup=*/true);
-    }
-    for (std::size_t k = 0; k < heldMods.count; ++k) {
-        if (bi + 1 > kMaxBatch) return false;
-        bsBuf[bi++] = MakeKey(heldMods.vks[k], /*keyup=*/false);
-    }
-    if (bi > 0) {
+    const std::size_t required = reinjectCount + heldMods.count * 2
+        + (plan.emitPrefix ? 2u : 0u) + plan.effectiveBsCount * 2;
+    if (required > kMaxBatch) return false;
+
+    if (required > 0) {
+        std::array<INPUT, kMaxBatch> bsBuf{};
+        std::size_t bi = 0;
+        if (reinjectCount != 0) {
+            bsBuf[bi++] = Internal::MakeKeyEvent(reinjectVk, false);
+        }
+        for (std::size_t k = 0; k < heldMods.count; ++k) {
+            bsBuf[bi++] = Internal::MakeKeyEvent(heldMods.vks[k], true);
+        }
+        Internal::AppendSuggestionPrefix(bsBuf.data(), bi, plan);
+        for (std::size_t k = 0; k < plan.effectiveBsCount; ++k) {
+            Internal::AppendKeyPair(bsBuf.data(), bi, VK_BACK);
+        }
+        const auto restoreStart = bi;
+        for (std::size_t k = 0; k < heldMods.count; ++k) {
+            bsBuf[bi++] = Internal::MakeKeyEvent(heldMods.vks[k], false);
+        }
         UINT sent = 0;
-        if (!Internal::TrackedSendInput(
-                bsBuf.data(), static_cast<UINT>(bi), &sent)) {
-            if (heldMods.count > 0 && sent > 0) {
-                Internal::RestoreModifiersAfterPartialSend(heldMods, sent, reinjectCount, bi - heldMods.count);
-            }
+        if (!Internal::TrackedSendInput(bsBuf.data(), static_cast<UINT>(bi), &sent)) {
+            Internal::RecoverAfterPartialSend({bsBuf.data(), bi}, sent, heldMods,
+                                               reinjectCount, restoreStart);
             return false;
         }
     }
@@ -116,21 +75,19 @@ bool SplitDispatchInjector::Replace(std::size_t bsCount,
         // Re-query after the sleep: physical modifiers may have changed.
         const auto charMods = Internal::QueryHeldModifiers(0, text);
         for (std::size_t k = 0; k < charMods.count; ++k) {
-            charBuf[ci++] = MakeKey(charMods.vks[k], true);
+            charBuf[ci++] = Internal::MakeKeyEvent(charMods.vks[k], true);
         }
         for (WCHAR ch : text) {
-            if (ci + 2 > charBuf.size()) return false;
-            charBuf[ci++] = MakeUnicodeChar(ch, /*keyup=*/false);
-            charBuf[ci++] = MakeUnicodeChar(ch, /*keyup=*/true);
+            Internal::AppendUnicodePair(charBuf.data(), ci, ch);
         }
         const auto restoreStart = ci;
         for (std::size_t k = 0; k < charMods.count; ++k) {
-            charBuf[ci++] = MakeKey(charMods.vks[k], false);
+            charBuf[ci++] = Internal::MakeKeyEvent(charMods.vks[k], false);
         }
         if (ci == 0) return true;
         UINT sent = 0;
         if (!Internal::TrackedSendInput(charBuf.data(), static_cast<UINT>(ci), &sent)) {
-            Internal::RestoreModifiersAfterPartialSend(charMods, sent, 0, restoreStart);
+            Internal::RecoverAfterPartialSend({charBuf.data(), ci}, sent, charMods, 0, restoreStart);
             return false;
         }
     }
@@ -139,8 +96,8 @@ bool SplitDispatchInjector::Replace(std::size_t bsCount,
 
 void SplitDispatchInjector::SendKey(unsigned short vkCode) noexcept {
     INPUT events[2] = {
-        MakeKey(static_cast<WORD>(vkCode), /*keyup=*/false),
-        MakeKey(static_cast<WORD>(vkCode), /*keyup=*/true),
+        Internal::MakeKeyEvent(static_cast<WORD>(vkCode), /*keyup=*/false),
+        Internal::MakeKeyEvent(static_cast<WORD>(vkCode), /*keyup=*/true),
     };
     (void)Internal::TrackedSendInput(events, 2);
 }

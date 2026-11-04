@@ -999,6 +999,7 @@ set(NEXTKEY_TEST_SOURCES
     tests/AdaptiveTickTest.cpp
     tests/AdaptiveTickBenchmark.cpp
     tests/AutoCapDecisionTest.cpp
+    tests/SuggestionDismissalDecisionTest.cpp
     tests/TsfEditDecisionTest.cpp
     tests/TsfPromotionDecisionTest.cpp
     tests/AutoCapStateTransitionTest.cpp
@@ -1076,6 +1077,7 @@ if(WIN32)
         # VKeyTests links VKeyCore (which excludes app/output and app/system),
         # so the required implementations are pulled into the test binary.
         tests/output/Win32SendInputInjectorTest.cpp
+        tests/output/NativePrefixSafetyTest.cpp
         tests/output/RichEditEmReplaceSelInjectorTest.cpp
         tests/output/OutputDispatcherRetryBudgetTest.cpp
         tests/output/FocusOutputTest.cpp

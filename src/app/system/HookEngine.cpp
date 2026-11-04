@@ -137,7 +137,7 @@ void HookEngine::ApplyConfig(const TypingConfig& config) {
     autoCaps_.store(config.autoCaps, std::memory_order_release);
     macroEnabled_.store(config.macroEnabled, std::memory_order_release);
     macroInEnglish_.store(config.macroInEnglish, std::memory_order_release);
-    // Push the suggestKeepChars flag to the live injector so ShouldEmitBait
+    // Push the suggestKeepChars flag to the live injector so PlanSuggestionDismissal
     // sees the latest user choice without needing a focus change to swap
     // injectors. Focus-change paths re-apply this from the config snapshot.
     if (auto inj = dispatcher_.GetInjector(); inj) {
@@ -954,9 +954,14 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
             return CallNextHookEx(nullptr, nCode, wParam, lParam);
         }
 
+        const bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
+        const bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
+        // Keep this alive through CallNextHookEx too: a later hook can inject
+        // another event before this DOWN reaches Windows' asynchronous state.
+        const Output::Internal::CurrentKeyDownScope currentKey{
+            nCode == HC_ACTION && self && isDown ? static_cast<WORD>(pKey->vkCode) : WORD{0}};
+
         if (nCode == HC_ACTION && self) {
-            const bool isDown = (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN);
-            const bool isUp = (wParam == WM_KEYUP || wParam == WM_SYSKEYUP);
 
             // Issue #274 & #275: Handle synthetic/injected events from other software.
             // External snippet expanders (PhraseExpress, AHK hotstrings) send injected
@@ -1169,6 +1174,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 }
             }
         }
+        return CallNextHookEx(nullptr, nCode, wParam, lParam);
     } catch (const std::exception& e) {
         CrashLog(L"HookEngine::LowLevelKeyboardProc", e.what());
         // Rule 11.5 safety net: an exception escaping ProcessKey* leaves the

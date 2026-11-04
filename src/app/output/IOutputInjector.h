@@ -113,7 +113,7 @@ public:
     // engine state in sync at the cost of "face" + BS → "fac".
     // HookEngine pushes the config value on focus change and live
     // ApplyConfig; the injector reads it on every Replace() through
-    // Internal::ShouldEmitBait. Atomic for cross-thread visibility
+    // PlanSuggestionDismissal. Atomic for cross-thread visibility
     // (writer = main thread / hook thread; reader = hook thread).
     void SetSuggestKeepChars(bool enabled) noexcept {
         suggestKeepChars_.store(enabled, std::memory_order_release);

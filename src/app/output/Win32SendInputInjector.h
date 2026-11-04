@@ -4,20 +4,21 @@
 // Chrome omnibox, Notepad++, Chromium renderer textareas (Gmail / ChatGPT)
 // — ~85% of host classes.
 //
-// Optional bait-char prefix for Chromium autocomplete-dismiss quirk
-// (replicates HookEngine::SendBackspaces line ~3121 logic).
+// Core-planned suggestion dismissal: Unicode bait for browsers/Outlook,
+// modifier-neutral native printable prefix for Excel.
 //
 // Spec: docs/plans/sprint-2-output-injector.md §2.2
 #pragma once
 
 #include "IOutputInjector.h"
+#include "core/SuggestionDismissalDecision.h"
 
 namespace NextKey::Output {
 
 class Win32SendInputInjector final : public IOutputInjector {
 public:
-    explicit Win32SendInputInjector(bool needsBaitCharPrefix) noexcept
-        : needsBaitCharPrefix_(needsBaitCharPrefix) {}
+    explicit Win32SendInputInjector(SuggestionDismissalPolicy suggestionDismissal) noexcept
+        : suggestionDismissal_(suggestionDismissal) {}
 
     bool Replace(std::size_t bsCount, std::wstring_view text,
                  unsigned short reinjectVk = 0) noexcept override;
@@ -28,17 +29,17 @@ public:
         return std::chrono::milliseconds{30};
     }
 
-    // Channel trait — exposes the constructor-supplied bait flag.
+    // Channel trait — derived from the constructor-supplied policy.
     // HookEngine uses this to skip game-compat reinjectVk for Chromium
     // browsers (the bait char already handles suggest dismiss).
     bool NeedsBaitCharPrefix() const noexcept override {
-        return needsBaitCharPrefix_;
+        return suggestionDismissal_ == SuggestionDismissalPolicy::UnicodeBait;
     }
     // Multi-process and alpha-lockstep traits inherit false — Win32 batched
     // dispatch is for vanilla single-process renderers.
 
 private:
-    bool needsBaitCharPrefix_;
+    SuggestionDismissalPolicy suggestionDismissal_;
 };
 
 }  // namespace NextKey::Output

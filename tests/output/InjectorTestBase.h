@@ -45,6 +45,8 @@ protected:
     // sum them to verify the bookkeeping a HookEngine integration would
     // see for synthEventsPending_.
     static inline std::vector<int> synthCounterDeltas;
+    Internal::NativePrefixLayoutFn originalNativePrefixLayout_{};
+    Internal::ToUnicodeExFn originalToUnicodeEx_{};
 
     void SetUp() override {
         capturedInputs.clear();
@@ -53,6 +55,18 @@ protected:
         synthCounterDeltas.clear();
         sendInputReturnOverride = 0;
         sendMessageReturnDefault = 1;
+        originalNativePrefixLayout_ = Internal::g_nativePrefixLayout;
+        originalToUnicodeEx_ = Internal::g_toUnicodeEx;
+        Internal::g_inFlightPrefixKeys = 0;
+        Internal::g_nativePrefixLayout = []() noexcept -> HKL {
+            return reinterpret_cast<HKL>(static_cast<ULONG_PTR>(0x04090409));
+        };
+        Internal::g_toUnicodeEx = [](UINT vk, UINT, const BYTE* state, LPWSTR text,
+                                     int, UINT, HKL) -> int {
+            text[0] = static_cast<wchar_t>((state[VK_CAPITAL] & 1) != 0
+                ? vk : vk + (L'a' - L'A'));
+            return 1;
+        };
 
         Internal::g_synthCounterCallback = [](int delta) noexcept {
             synthCounterDeltas.push_back(delta);
@@ -92,6 +106,9 @@ protected:
         Internal::g_sendMessageW          = ::SendMessageW;
         Internal::g_sendMessageTimeoutW   = ::SendMessageTimeoutW;
         Internal::g_synthCounterCallback  = nullptr;
+        Internal::g_nativePrefixLayout = originalNativePrefixLayout_;
+        Internal::g_toUnicodeEx = originalToUnicodeEx_;
+        Internal::g_inFlightPrefixKeys = 0;
     }
 };
 

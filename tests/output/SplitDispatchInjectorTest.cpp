@@ -65,10 +65,12 @@ TEST_F(SplitDispatchInjectorTest, PartialFirstSendReturnsFalseAndStopsSecondBatc
     sendInputReturnOverride = 1;  // only 1 of N events delivered on every call
     EXPECT_FALSE(inj.Replace(2, L"x"));
     // Second batch must NOT have been attempted after first failed:
-    // no Sleep, no char events captured beyond the BS attempt.
+    // no Sleep or char events; only the incomplete BS gets its key-up.
     EXPECT_EQ(sleepDelays.size(), 0u);
-    ASSERT_EQ(capturedInputs.size(), 4u);  // only the BS attempt
+    ASSERT_EQ(capturedInputs.size(), 5u);  // BS attempt + recovery key-up
     EXPECT_EQ(capturedInputs[0].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs.back().ki.wVk, VK_BACK);
+    EXPECT_NE(capturedInputs.back().ki.dwFlags & KEYEVENTF_KEYUP, 0u);
 }
 
 TEST_F(SplitDispatchInjectorTest, PartialFirstBatchAfterShiftUpAttemptsShiftRestore) {
@@ -107,7 +109,7 @@ TEST_F(SplitDispatchInjectorTest, BaitCharFiresOnChromiumElectronWhenBsPositive)
     // before the Sleep so the autocomplete suggest engine dismisses
     // before the real deletes hit.
     SplitDispatchInjector inj(/*sleepMsBetweenBatches=*/6,
-                              /*needsBaitCharPrefix=*/true);
+                              SuggestionDismissalPolicy::UnicodeBait);
     EXPECT_TRUE(inj.Replace(1, L"x"));
     // Expected first batch: bait (down+up=2) + 2 BS down/up (= 4: 1 orig + 1 extra) = 6 events.
     // Expected second batch: 1 char down/up (= 2). Total 8 events captured.
@@ -129,7 +131,7 @@ TEST_F(SplitDispatchInjectorTest, HeldShiftIsReleasedAroundBackspaceBatch) {
     };
 
     SplitDispatchInjector inj(/*sleepMsBetweenBatches=*/6,
-                              /*needsBaitCharPrefix=*/true);
+                              SuggestionDismissalPolicy::UnicodeBait);
     EXPECT_TRUE(inj.Replace(1, L"Đ"));
 
     // First batch: Shift-up, bait, two Backspaces, Shift-down. The text is
@@ -217,7 +219,7 @@ TEST_F(SplitDispatchInjectorTest, HeldControlAndShiftAreBothReleased) {
 }
 
 TEST_F(SplitDispatchInjectorTest, BaitCharSkippedWhenBsCountZero) {
-    SplitDispatchInjector inj(6, /*needsBaitCharPrefix=*/true);
+    SplitDispatchInjector inj(6, SuggestionDismissalPolicy::UnicodeBait);
     EXPECT_TRUE(inj.Replace(0, L"y"));
     // No BS → no bait. Just the char batch.
     ASSERT_EQ(capturedInputs.size(), 2u);
@@ -231,7 +233,7 @@ TEST_F(SplitDispatchInjectorTest, BaitCharFiresOnPureBackspaceByDefault) {
     // Dorion inherit the Chromium inline-autocomplete swallow-BS quirk
     // — default behavior forces the bait so engine state stays in sync.
     SplitDispatchInjector inj(/*sleepMsBetweenBatches=*/6,
-                              /*needsBaitCharPrefix=*/true);
+                              SuggestionDismissalPolicy::UnicodeBait);
     EXPECT_TRUE(inj.Replace(2, L""));
     // Expected: bait + 3 BS (1 extra to delete bait) × down+up = 8 events.
     ASSERT_EQ(capturedInputs.size(), 8u);
@@ -246,7 +248,7 @@ TEST_F(SplitDispatchInjectorTest, BaitCharFiresOnPureBackspaceByDefault) {
 TEST_F(SplitDispatchInjectorTest, BaitCharSkippedOnPureBackspaceWhenSuggestKeepCharsOn) {
     // Opt-in setting: BS only dismisses the popup, preserves typed chars.
     SplitDispatchInjector inj(/*sleepMsBetweenBatches=*/6,
-                              /*needsBaitCharPrefix=*/true);
+                              SuggestionDismissalPolicy::UnicodeBait);
     inj.SetSuggestKeepChars(true);
     EXPECT_TRUE(inj.Replace(2, L""));
     // Expected: 2 BS × (down + up) = 4 events. No bait, no extra BS, no Sleep.
@@ -276,9 +278,10 @@ TEST_F(SplitDispatchInjectorTest, PartialFirstBatchEmitsCompensatingNegativeDelt
     SplitDispatchInjector inj(6);
     sendInputReturnOverride = 1;  // 4 expected, 1 delivered
     EXPECT_FALSE(inj.Replace(2, L"x"));
-    ASSERT_EQ(synthCounterDeltas.size(), 2u);
+    ASSERT_EQ(synthCounterDeltas.size(), 3u);
     EXPECT_EQ(synthCounterDeltas[0], 4);
     EXPECT_EQ(synthCounterDeltas[1], -3);
+    EXPECT_EQ(synthCounterDeltas[2], 1);  // delivered BS-up recovery
 }
 
 // ── Game-compat re-inject ────────────────────────────────────────────

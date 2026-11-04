@@ -30,6 +30,8 @@
 
 #pragma once
 
+#include "core/SuggestionDismissalDecision.h"
+
 #include <atomic>
 #include <cstdint>
 #include <functional>
@@ -107,7 +109,7 @@ struct FocusClassification {
     std::uintptr_t focusedChildHwndOpaque{0};
     // Dispatch-shape flags derived from classification + per-app overrides.
     bool localSkipEmpty{false};
-    bool localNeedBait{false};
+    SuggestionDismissalPolicy localSuggestionDismissal{SuggestionDismissalPolicy::None};
     bool localClipboard{false};
     bool localEditMsg{false};
     bool localForceEmReplaceSel{false};

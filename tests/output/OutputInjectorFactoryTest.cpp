@@ -29,7 +29,7 @@ TEST(OutputInjectorFactoryTest, DefaultClassificationReturnsWin32) {
 
 TEST(OutputInjectorFactoryTest, ChromiumFlagStillWin32ButCarriesBaitHint) {
     WindowClassification c{};
-    c.isChromium = true;
+    c.suggestionDismissal = SuggestionDismissalPolicy::UnicodeBait;
     auto inj = Create(c);
     ASSERT_NE(inj, nullptr);
     EXPECT_NE(dynamic_cast<Win32SendInputInjector*>(inj.get()), nullptr);
@@ -118,20 +118,20 @@ TEST(OutputInjectorFactoryTest, ForcedSplitZeroDefaultsToWin32) {
     // stays on the Win32 fast path, even if it carries the Chromium bait hint.
     WindowClassification c{};
     c.forcedSplitSleepMs = 0;
-    c.isChromium = true;
+    c.suggestionDismissal = SuggestionDismissalPolicy::UnicodeBait;
     auto inj = Create(c);
     ASSERT_NE(inj, nullptr);
     EXPECT_NE(dynamic_cast<Win32SendInputInjector*>(inj.get()), nullptr);
 }
 
 TEST(OutputInjectorFactoryTest, ForcedSplitInheritsRendererTraits) {
-    // Firefox parity: a browser (isChromium=true) but non-Electron app forced
+    // Firefox parity: a browser with UnicodeBait but non-Electron app forced
     // to the compat split must keep the bait-char prefix (Firefox's URL-bar
     // autocomplete behaves like Chromium's) and stay single-process — matching
     // the pre-refactor Firefox path. Traits are derived, not hardcoded.
     WindowClassification c{};
     c.forcedSplitSleepMs = 6;
-    c.isChromium = true;
+    c.suggestionDismissal = SuggestionDismissalPolicy::UnicodeBait;
     c.isElectron = false;
     auto inj = Create(c);  // keep alive — .get() on a temporary would dangle
     auto* split = dynamic_cast<SplitDispatchInjector*>(inj.get());
@@ -147,12 +147,12 @@ TEST(OutputInjectorFactoryTest, ForcedSplitWinsOverElectronButInheritsMultiProc)
     WindowClassification c{};
     c.forcedSplitSleepMs = 25;  // sendMethod=3 (Cloud/Remote)
     c.isElectron = true;
-    c.isChromium = true;
+    c.suggestionDismissal = SuggestionDismissalPolicy::UnicodeBait;
     auto inj = Create(c);  // keep alive — .get() on a temporary would dangle
     auto* split = dynamic_cast<SplitDispatchInjector*>(inj.get());
     ASSERT_NE(split, nullptr);
     EXPECT_TRUE(split->HasMultiProcessRenderer());  // inherited from isElectron
-    EXPECT_TRUE(split->NeedsBaitCharPrefix());       // inherited from isChromium
+    EXPECT_TRUE(split->NeedsBaitCharPrefix());       // inherited from suggestionDismissal
 }
 
 TEST(OutputInjectorFactoryTest, SettleBudgetReflectsImpl) {

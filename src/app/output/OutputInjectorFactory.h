@@ -20,6 +20,7 @@
 #pragma once
 
 #include "IOutputInjector.h"
+#include "core/SuggestionDismissalDecision.h"
 #include <memory>
 
 namespace NextKey::Output {
@@ -30,7 +31,7 @@ struct WindowClassification {
     bool isRichEditD2DPT  = false;  // Win11 New Notepad
     bool isElectron       = false;  // Discord / Slack / VSCode etc
     bool isConsole        = false;  // Windows Terminal / CMD / PowerShell
-    bool isChromium       = false;  // Chrome / Edge — bait-char hint
+    SuggestionDismissalPolicy suggestionDismissal = SuggestionDismissalPolicy::None;
     bool useClipboard     = false;  // User configured clipboard fallback
     // Per-app "send method" override = compatibility split dispatch
     // (AppOverrideEntry::sendMethod 2/3). 0 = not forced. When > 0, route

@@ -146,7 +146,7 @@ void OutputDispatcher::PrepareFocusOutput(FocusClassification& cls) noexcept {
     c.isRichEditD2DPT = cls.localEditMsg;
     c.isElectron = cls.localElectronApp;
     c.isConsole = cls.isConsole;
-    c.isChromium = cls.localNeedBait;
+    c.suggestionDismissal = cls.localSuggestionDismissal;
     c.useClipboard = cls.localUseClipboardInjector;
     c.forcedSplitSleepMs = cls.localForcedSplitSleepMs;
     c.forceEmReplaceSel = cls.localForceEmReplaceSel;
@@ -219,7 +219,7 @@ void OutputDispatcher::SendBackspaceEvents(size_t count) noexcept {
     std::vector<INPUT> events;
     events.reserve(heldMods.count * 2 + count * 2);
     for (size_t k = 0; k < heldMods.count; ++k) {
-        events.push_back(NextKey::Output::Internal::MakeModifierEvent(heldMods.vks[k], true));
+        events.push_back(NextKey::Output::Internal::MakeKeyEvent(heldMods.vks[k], true));
     }
     WORD bsScan = static_cast<WORD>(MapVirtualKeyW(VK_BACK, MAPVK_VK_TO_VSC));
     for (size_t i = 0; i < count; ++i) {
@@ -227,13 +227,14 @@ void OutputDispatcher::SendBackspaceEvents(size_t count) noexcept {
     }
     const auto restoreStart = events.size();
     for (size_t k = 0; k < heldMods.count; ++k) {
-        events.push_back(NextKey::Output::Internal::MakeModifierEvent(heldMods.vks[k], false));
+        events.push_back(NextKey::Output::Internal::MakeKeyEvent(heldMods.vks[k], false));
     }
     sending_.store(true, std::memory_order_release);
     UINT sent = 0;
     if (!NextKey::Output::Internal::TrackedSendInput(
             events.data(), static_cast<UINT>(events.size()), &sent)) {
-        NextKey::Output::Internal::RestoreModifiersAfterPartialSend(heldMods, sent, 0, restoreStart);
+        NextKey::Output::Internal::RecoverAfterPartialSend(
+            {events.data(), events.size()}, sent, heldMods, 0, restoreStart);
     }
     sending_.store(false, std::memory_order_release);
     RecordSynthDispatch();
@@ -244,20 +245,21 @@ void OutputDispatcher::SendCharEvents(const std::wstring& text) noexcept {
     std::vector<INPUT> events;
     events.reserve(text.size() * 2 + heldMods.count * 2);
     for (size_t k = 0; k < heldMods.count; ++k) {
-        events.push_back(NextKey::Output::Internal::MakeModifierEvent(heldMods.vks[k], true));
+        events.push_back(NextKey::Output::Internal::MakeKeyEvent(heldMods.vks[k], true));
     }
     for (wchar_t ch : text) {
         AppendUnicodeEvent(events, ch);
     }
     const auto restoreStart = events.size();
     for (size_t k = 0; k < heldMods.count; ++k) {
-        events.push_back(NextKey::Output::Internal::MakeModifierEvent(heldMods.vks[k], false));
+        events.push_back(NextKey::Output::Internal::MakeKeyEvent(heldMods.vks[k], false));
     }
     sending_.store(true, std::memory_order_release);
     UINT sent = 0;
     if (!NextKey::Output::Internal::TrackedSendInput(
             events.data(), static_cast<UINT>(events.size()), &sent)) {
-        NextKey::Output::Internal::RestoreModifiersAfterPartialSend(heldMods, sent, 0, restoreStart);
+        NextKey::Output::Internal::RecoverAfterPartialSend(
+            {events.data(), events.size()}, sent, heldMods, 0, restoreStart);
     }
     sending_.store(false, std::memory_order_release);
     RecordSynthDispatch();
@@ -480,7 +482,7 @@ void OutputDispatcher::SendBackspaces(size_t count) noexcept {
     // Sprint 2 D2 uniform path: delegate to the active injector. RichEdit
     // class is handled inside RichEditEmReplaceSelInjector; bait-char
     // prefix lives inside Win32SendInputInjector::Replace, gated by
-    // needsBaitCharPrefix_.
+    // suggestionDismissal_.
     (void)ReplaceRaw(count, {});
 }
 
@@ -586,7 +588,7 @@ void OutputDispatcher::ReplaceUnicode(size_t backspaceCount,
         // 3. Win32SendInputInjector's Replace() is a single synchronous
         //    SendInput call — the events enter the input queue atomically.
         sending_.store(true, std::memory_order_release);
-        NextKey::Output::Win32SendInputInjector fallbackInjector(false);
+        NextKey::Output::Win32SendInputInjector fallbackInjector(SuggestionDismissalPolicy::None);
         bool isFallbackSuccessful = fallbackInjector.Replace(backspaceCount, text);
         if (!isFallbackSuccessful) {
             HOOK_LOG(L"  ReplaceComposition[editMsg]: fallback injector reported partial delivery");

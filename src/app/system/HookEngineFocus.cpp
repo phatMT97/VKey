@@ -42,9 +42,9 @@ void HookEngine::RouteFocusOnHookThread(
 
     const auto cfg = config_.load(std::memory_order_acquire);
     if (dispatcher_.ApplyFocusOutput(*cls, disposition, cfg->suggestKeepChars)) {
-        HOOK_LOG(L"  FocusOutput: request=%llu bait=%d game=%d deferred=%d",
+        HOOK_LOG(L"  FocusOutput: request=%llu suggestionDismissal=%d game=%d deferred=%d",
                  static_cast<unsigned long long>(cls->requestSerial),
-                 cls->localNeedBait ? 1 : 0, cls->localGameReinject ? 1 : 0,
+                 static_cast<int>(cls->localSuggestionDismissal), cls->localGameReinject ? 1 : 0,
                  disposition == FocusApplyDisposition::DeferUntilBoundary ? 1 : 0);
     }
 
@@ -333,9 +333,9 @@ void HookEngine::ApplyFocusOnHookThread(std::shared_ptr<const FocusClassificatio
     // Runs even for an unchanged target: Win+L returns to the same window.
     ReconcileModifierStateOnHookThread(targetChanged);
 
-    HOOK_LOG(L"  AppDetect: console=%d skipEmpty=%d electron=%d webview2=%d bait=%d clipboard=%d editMsg=%d useClipInj=%d splitSleepMs=%d emptyDoc=%d fresh=%d",
+    HOOK_LOG(L"  AppDetect: console=%d skipEmpty=%d electron=%d webview2=%d suggestionDismissal=%d clipboard=%d editMsg=%d useClipInj=%d splitSleepMs=%d emptyDoc=%d fresh=%d",
              cls->isConsole ? 1 : 0, cls->localSkipEmpty ? 1 : 0, cls->localElectronApp ? 1 : 0,
-             cls->isWebView2 ? 1 : 0, cls->localNeedBait ? 1 : 0, cls->localClipboard ? 1 : 0,
+             cls->isWebView2 ? 1 : 0, static_cast<int>(cls->localSuggestionDismissal), cls->localClipboard ? 1 : 0,
              cls->localEditMsg ? 1 : 0, cls->localUseClipboardInjector ? 1 : 0,
              cls->localForcedSplitSleepMs, cls->isKnownEmptyDocument ? 1 : 0,
              shouldArmAutoCap ? 1 : 0);

@@ -30,12 +30,12 @@ namespace NextKey::Output::Test {
 // ─── Win32SendInputInjector ──────────────────────────────────────────
 
 TEST(InjectorTraitsTest, Win32_NoBaitFlag_NeedsBaitCharPrefixIsFalse) {
-    Win32SendInputInjector inj(/*needsBaitCharPrefix=*/false);
+    Win32SendInputInjector inj(SuggestionDismissalPolicy::None);
     EXPECT_FALSE(inj.NeedsBaitCharPrefix());
 }
 
 TEST(InjectorTraitsTest, Win32_BaitFlag_NeedsBaitCharPrefixIsTrue) {
-    Win32SendInputInjector inj(/*needsBaitCharPrefix=*/true);
+    Win32SendInputInjector inj(SuggestionDismissalPolicy::UnicodeBait);
     EXPECT_TRUE(inj.NeedsBaitCharPrefix());
 }
 
@@ -44,8 +44,8 @@ TEST(InjectorTraitsTest, Win32_HasMultiProcessRendererAlwaysFalse) {
     // The bait flag controls Chromium suggest-dismiss but the Chromium
     // browser process model itself doesn't change Win32's
     // single-channel synth/physical ordering.
-    Win32SendInputInjector noBait(false);
-    Win32SendInputInjector withBait(true);
+    Win32SendInputInjector noBait(SuggestionDismissalPolicy::None);
+    Win32SendInputInjector withBait(SuggestionDismissalPolicy::UnicodeBait);
     EXPECT_FALSE(noBait.HasMultiProcessRenderer());
     EXPECT_FALSE(withBait.HasMultiProcessRenderer());
     EXPECT_FALSE(noBait.RequiresSyntheticAlphaLockstep());
@@ -64,7 +64,7 @@ TEST(InjectorTraitsTest, Split_Defaults_BothTraitsFalse) {
 
 TEST(InjectorTraitsTest, Split_BaitOnly_BaitTrueMultiProcFalse) {
     SplitDispatchInjector inj(/*sleepMs=*/6,
-                              /*needsBaitCharPrefix=*/true);
+                              SuggestionDismissalPolicy::UnicodeBait);
     EXPECT_TRUE(inj.NeedsBaitCharPrefix());
     EXPECT_FALSE(inj.HasMultiProcessRenderer());
     EXPECT_FALSE(inj.RequiresSyntheticAlphaLockstep());
@@ -72,7 +72,7 @@ TEST(InjectorTraitsTest, Split_BaitOnly_BaitTrueMultiProcFalse) {
 
 TEST(InjectorTraitsTest, Split_MultiProcOnly_BaitFalseMultiProcTrue) {
     SplitDispatchInjector inj(/*sleepMs=*/6,
-                              /*needsBaitCharPrefix=*/false,
+                              SuggestionDismissalPolicy::None,
                               /*hasMultiProcessRenderer=*/true);
     EXPECT_FALSE(inj.NeedsBaitCharPrefix());
     EXPECT_TRUE(inj.HasMultiProcessRenderer());
@@ -83,7 +83,7 @@ TEST(InjectorTraitsTest, Split_BothFlags_BothTraitsTrue) {
     // Electron-on-Chromium (Discord/Slack/VSCode/WebView2) — split
     // dispatch + Chromium suggest dismiss + multi-process renderer race.
     SplitDispatchInjector inj(/*sleepMs=*/6,
-                              /*needsBaitCharPrefix=*/true,
+                              SuggestionDismissalPolicy::UnicodeBait,
                               /*hasMultiProcessRenderer=*/true);
     EXPECT_TRUE(inj.NeedsBaitCharPrefix());
     EXPECT_TRUE(inj.HasMultiProcessRenderer());
@@ -114,11 +114,11 @@ TEST(InjectorTraitsTest, Factory_DefaultClassification_NoTraits) {
 
 TEST(InjectorTraitsTest, Factory_Chromium_BaitTrueOnWin32) {
     WindowClassification c{};
-    c.isChromium = true;
+    c.suggestionDismissal = SuggestionDismissalPolicy::UnicodeBait;
     auto inj = Create(c);
     ASSERT_NE(inj, nullptr);
     EXPECT_TRUE(inj->NeedsBaitCharPrefix())
-        << "isChromium classification must propagate as bait-prefix trait";
+        << "suggestionDismissal classification must propagate as bait-prefix trait";
     EXPECT_FALSE(inj->HasMultiProcessRenderer())
         << "vanilla Chromium browsers stay on Win32 single channel";
     EXPECT_FALSE(inj->RequiresSyntheticAlphaLockstep());
@@ -139,7 +139,7 @@ TEST(InjectorTraitsTest, Factory_Electron_MultiProcTrueBaitFalseByDefault) {
 TEST(InjectorTraitsTest, Factory_ElectronChromium_BothTraitsTrue) {
     WindowClassification c{};
     c.isElectron = true;
-    c.isChromium = true;
+    c.suggestionDismissal = SuggestionDismissalPolicy::UnicodeBait;
     auto inj = Create(c);
     ASSERT_NE(inj, nullptr);
     EXPECT_TRUE(inj->NeedsBaitCharPrefix());
