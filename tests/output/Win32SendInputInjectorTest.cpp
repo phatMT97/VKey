@@ -37,26 +37,21 @@ TEST_F(Win32SendInputInjectorTest, ReplaceWithCharsSendsBatch) {
     EXPECT_EQ(capturedInputs[6].ki.wScan, L'i');
 }
 
-TEST_F(Win32SendInputInjectorTest, BaitCharFiresOnPureBackspaceByDefault) {
-    // Default (suggestKeepChars=false): pure-BS still emits bait so a
-    // Chromium suggestion popup can't swallow the BS as a dismiss-only
-    // gesture — engine state stays in sync at the cost of a brief flicker.
+TEST_F(Win32SendInputInjectorTest, BaitCharSkippedOnPureBackspaceByDefault) {
+    // Pure-BS (text.empty()) ALWAYS skips bait — never injects U+202F so
+    // HTML email, number, and validated web inputs do not delete 2 chars (fixes #280 & #108).
     Win32SendInputInjector inj(SuggestionDismissalPolicy::UnicodeBait);
     EXPECT_TRUE(inj.Replace(2, L""));
-    // Expected: bait (down+up=2) + (2+1)=3 BS × down+up = 8 events
-    // (1 extra BS deletes the bait).
-    ASSERT_EQ(capturedInputs.size(), 8u);
-    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_UNICODE, 0u);
-    EXPECT_EQ(capturedInputs[0].ki.wScan, 0x202F);
-    for (size_t i = 2; i < 8; ++i) {
+    // Expected: 2 BS × (down + up) = 4 events. No bait, no extra BS.
+    ASSERT_EQ(capturedInputs.size(), 4u);
+    for (size_t i = 0; i < 4; ++i) {
         EXPECT_EQ(capturedInputs[i].ki.wVk, VK_BACK)
             << "event[" << i << "].wVk should be VK_BACK";
     }
 }
 
 TEST_F(Win32SendInputInjectorTest, BaitCharSkippedOnPureBackspaceWhenSuggestKeepCharsOn) {
-    // Opt-in setting: BS only dismisses the popup, preserves typed chars
-    // ("face" + BS → "face"). Trade-off documented on the toggle.
+    // suggestKeepChars=true also skips bait on pure-BS.
     Win32SendInputInjector inj(SuggestionDismissalPolicy::UnicodeBait);
     inj.SetSuggestKeepChars(true);
     EXPECT_TRUE(inj.Replace(2, L""));
@@ -84,6 +79,20 @@ TEST_F(Win32SendInputInjectorTest, BaitCharFiresOnReplaceWithText) {
     EXPECT_EQ(capturedInputs[4].ki.wVk, VK_BACK);
     EXPECT_NE(capturedInputs[6].ki.dwFlags & KEYEVENTF_UNICODE, 0u);
     EXPECT_EQ(capturedInputs[6].ki.wScan, L'x');
+}
+
+TEST_F(Win32SendInputInjectorTest, BaitCharSkippedOnReplaceWithTextWhenSuggestKeepCharsOn) {
+    // Opt-in setting (suggestKeepChars=true): skips bait even on transforms,
+    // protecting Auto-Restore and tone escape in strict email/number inputs.
+    Win32SendInputInjector inj(SuggestionDismissalPolicy::UnicodeBait);
+    inj.SetSuggestKeepChars(true);
+    EXPECT_TRUE(inj.Replace(1, L"x"));
+    // Expected: 1 BS down/up (= 2) + 1 char down/up (= 2) = 4 events. No bait, no extra BS.
+    ASSERT_EQ(capturedInputs.size(), 4u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, VK_BACK);
+    EXPECT_NE(capturedInputs[2].ki.dwFlags & KEYEVENTF_UNICODE, 0u);
+    EXPECT_EQ(capturedInputs[2].ki.wScan, L'x');
 }
 
 TEST_F(Win32SendInputInjectorTest, HeldShiftIsReleasedAroundBackspaceReplacement) {

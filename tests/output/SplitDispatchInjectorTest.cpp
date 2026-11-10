@@ -228,25 +228,22 @@ TEST_F(SplitDispatchInjectorTest, BaitCharSkippedWhenBsCountZero) {
     EXPECT_EQ(sleepDelays.size(), 0u);
 }
 
-TEST_F(SplitDispatchInjectorTest, BaitCharFiresOnPureBackspaceByDefault) {
-    // Mirror of Win32SendInputInjectorTest equivalent. WebView2 / Tauri /
-    // Dorion inherit the Chromium inline-autocomplete swallow-BS quirk
-    // — default behavior forces the bait so engine state stays in sync.
+TEST_F(SplitDispatchInjectorTest, BaitCharSkippedOnPureBackspaceByDefault) {
+    // Pure-BS (text.empty()) ALWAYS skips bait — never injects U+202F so
+    // WebView2 / Tauri / browser inputs do not delete 2 chars (fixes #280 & #108).
     SplitDispatchInjector inj(/*sleepMsBetweenBatches=*/6,
                               SuggestionDismissalPolicy::UnicodeBait);
     EXPECT_TRUE(inj.Replace(2, L""));
-    // Expected: bait + 3 BS (1 extra to delete bait) × down+up = 8 events.
-    ASSERT_EQ(capturedInputs.size(), 8u);
-    EXPECT_NE(capturedInputs[0].ki.dwFlags & KEYEVENTF_UNICODE, 0u);
-    EXPECT_EQ(capturedInputs[0].ki.wScan, 0x202F);
-    for (size_t i = 2; i < 8; ++i) {
+    // Expected: 2 BS × (down + up) = 4 events. No bait, no extra BS, no Sleep.
+    ASSERT_EQ(capturedInputs.size(), 4u);
+    for (size_t i = 0; i < 4; ++i) {
         EXPECT_EQ(capturedInputs[i].ki.wVk, VK_BACK);
     }
-    EXPECT_EQ(sleepDelays.size(), 0u);  // pure-BS → no second batch → no Sleep
+    EXPECT_EQ(sleepDelays.size(), 0u);
 }
 
 TEST_F(SplitDispatchInjectorTest, BaitCharSkippedOnPureBackspaceWhenSuggestKeepCharsOn) {
-    // Opt-in setting: BS only dismisses the popup, preserves typed chars.
+    // suggestKeepChars=true also skips bait on pure-BS.
     SplitDispatchInjector inj(/*sleepMsBetweenBatches=*/6,
                               SuggestionDismissalPolicy::UnicodeBait);
     inj.SetSuggestKeepChars(true);
@@ -257,6 +254,20 @@ TEST_F(SplitDispatchInjectorTest, BaitCharSkippedOnPureBackspaceWhenSuggestKeepC
         EXPECT_EQ(capturedInputs[i].ki.wVk, VK_BACK);
     }
     EXPECT_EQ(sleepDelays.size(), 0u);
+}
+
+TEST_F(SplitDispatchInjectorTest, BaitCharSkippedOnReplaceWithTextWhenSuggestKeepCharsOn) {
+    // Opt-in setting (suggestKeepChars=true): skips bait even on transforms.
+    SplitDispatchInjector inj(/*sleepMsBetweenBatches=*/6,
+                              SuggestionDismissalPolicy::UnicodeBait);
+    inj.SetSuggestKeepChars(true);
+    EXPECT_TRUE(inj.Replace(1, L"x"));
+    // Expected: 1 BS down/up (= 2) + 1 char down/up (= 2) = 4 events. No bait, no extra BS.
+    ASSERT_EQ(capturedInputs.size(), 4u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[1].ki.wVk, VK_BACK);
+    EXPECT_NE(capturedInputs[2].ki.dwFlags & KEYEVENTF_UNICODE, 0u);
+    EXPECT_EQ(capturedInputs[2].ki.wScan, L'x');
 }
 
 TEST_F(SplitDispatchInjectorTest, ReplaceNotifiesSynthCounterPerBatch) {

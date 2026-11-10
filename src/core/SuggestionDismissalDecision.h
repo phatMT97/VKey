@@ -45,7 +45,12 @@ struct SuggestionDismissalPlan {
     if (bsCount == 0 || policy == SuggestionDismissalPolicy::None) return plan;
     if (bsCount == (std::numeric_limits<std::size_t>::max)()) return plan;
     if (policy == SuggestionDismissalPolicy::UnicodeBait) {
-        if (suggestKeepChars && text.empty()) return plan;
+        // Pure Backspace (text.empty()): ALWAYS skip Unicode bait (fixes #280 & #108).
+        // Transform (!text.empty()): skip bait when user enables suggestKeepChars
+        // to protect Auto-Restore and tone escape in <input type="email">/OTP fields.
+        if (text.empty() || suggestKeepChars) {
+            return plan;
+        }
         plan.prefixChar = kUnicodeBaitChar;
     } else {
         plan.prefixVk = kNativePrintablePrefixVk;

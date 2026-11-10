@@ -69,12 +69,12 @@ TEST(SuggestionDismissalDecisionTest, NonePreservesRequestedBackspaces) {
     }
 }
 
-TEST(SuggestionDismissalDecisionTest, UnicodeAddsOneDeleteUnlessKeepingCharsOnPureBackspace) {
+TEST(SuggestionDismissalDecisionTest, UnicodeSkipsBaitOnPureBackspaceAndHonorsKeepCharsOnTransforms) {
     for (std::size_t count : {1u, 3u, 32u}) {
         for (auto text : {std::wstring_view{}, std::wstring_view{L"tiếng"}}) {
             for (bool keep : {false, true}) {
                 const auto plan = PlanSuggestionDismissal(Policy::UnicodeBait, count, text, keep);
-                const bool emit = !(keep && text.empty());
+                const bool emit = !text.empty() && !keep;
                 EXPECT_EQ(plan.emitPrefix, emit);
                 EXPECT_EQ(plan.effectiveBsCount, count + (emit ? 1u : 0u));
                 EXPECT_EQ(plan.prefixVk, 0);
