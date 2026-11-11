@@ -46,11 +46,10 @@ struct SuggestionDismissalPlan {
     if (bsCount == (std::numeric_limits<std::size_t>::max)()) return plan;
     if (policy == SuggestionDismissalPolicy::UnicodeBait) {
         // Pure Backspace (text.empty()): ALWAYS skip Unicode bait (fixes #280 & #108).
-        // Transform (!text.empty()): skip bait when user enables suggestKeepChars
-        // to protect Auto-Restore and tone escape in <input type="email">/OTP fields.
-        if (text.empty() || suggestKeepChars) {
-            return plan;
-        }
+        // Strict/maxlength fields may reject any temporary prefix. This
+        // explicit opt-out also disables inline-suggestion dismissal on
+        // transforms: without host selection feedback we cannot promise both.
+        if (text.empty() || suggestKeepChars) return plan;
         plan.prefixChar = kUnicodeBaitChar;
     } else {
         plan.prefixVk = kNativePrintablePrefixVk;

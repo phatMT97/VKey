@@ -272,7 +272,7 @@ template<typename CharStateT>
 /// Call in the tone gate BEFORE ProcessTone() to block tone on invalid nuclei.
 template<typename CharStateT>
 [[nodiscard]] inline bool HasInvalidAdjacentVowelPair(
-        const CharStateT* states, size_t count) noexcept {
+        const CharStateT* states, size_t count, bool allowPendingUuTone) noexcept {
     for (size_t i = 0; i + 1 < count; ++i) {
         if (!states[i].IsVowel() || !states[i+1].IsVowel()) continue;
         if (states[i].HasModifier() || states[i+1].HasModifier()) continue;
@@ -293,8 +293,10 @@ template<typename CharStateT>
         // Free-marking via a trailing 'e' later promotes e → ê and
         // RelocateToneToTarget moves any tone onto the new ê.
         if (v0 == 5 && v1 == 1) continue;
-        // A bare uu can still become ưu when a later horn key is typed.
-        if (v0 == 4 && v1 == 4) continue;
+        // A bare uu can acquire a tone before a later horn key. Keep the
+        // invalid-nucleus guard for same-tone escape, which would erase raw
+        // keys before English auto-restore (pursuits/pursues).
+        if (v0 == 4 && v1 == 4 && allowPendingUuTone) continue;
         // Exception: o+o — the only way a literal "oo" pair reaches the buffer
         // is the ooo→oo circumflex escape (normal "oo" collapses to "ô"). "oo"
         // is a valid Vietnamese nucleus with coda c/ng (xoong, boong, voọc,

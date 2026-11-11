@@ -48,8 +48,8 @@ protected:
 
     // Model only inline selection: the first edit removes the suggested
     // suffix; a Backspace against that selection leaves the typed prefix.
-    static std::wstring ReplayInlineSuggestion(std::wstring prefix) {
-        bool hasSuggestedSuffix = true;
+    static std::wstring ReplayInlineSuggestion(std::wstring prefix,
+                                               bool hasSuggestedSuffix = true) {
         for (const auto& input : capturedInputs) {
             if (input.ki.dwFlags & KEYEVENTF_KEYUP) continue;
             if (input.ki.dwFlags & KEYEVENTF_UNICODE) {
@@ -131,9 +131,13 @@ TEST_F(FocusOutputTest, DelayedOutputKeepsLiveSettingsAndSyntheticWordState) {
     EXPECT_TRUE(dispatcher_.HadSynthInWord());
     EXPECT_TRUE(dispatcher_.GetInjector()->GetSuggestKeepChars());
 
-    // The user's pure-Backspace preference must never suppress transform bait.
+    // The strict-field opt-out deliberately omits suggestion dismissal.
+    // Verify replacement in a field without an inline suggested suffix.
     ASSERT_TRUE(dispatcher_.GetInjector()->Replace(1, L"đ"));
-    EXPECT_EQ(ReplayInlineSuggestion(L"d"), L"đ");
+    ASSERT_EQ(capturedInputs.size(), 4u);
+    EXPECT_EQ(capturedInputs[0].ki.wVk, VK_BACK);
+    EXPECT_EQ(capturedInputs[2].ki.wScan, L'đ');
+    EXPECT_EQ(ReplayInlineSuggestion(L"d", false), L"đ");
 }
 
 TEST_F(FocusOutputTest, UnpreparedResultLeavesCurrentOutputUntouched) {

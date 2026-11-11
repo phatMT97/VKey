@@ -126,9 +126,28 @@ void TypingEngine::PushChar(wchar_t keyChar) {
     PushKey(keyChar, iswupper(keyChar) || keyChar == L'{' || keyChar == L'}');
 }
 
+TypingAction TypingEngine::ResolveKeyAction(wchar_t lower) const noexcept {
+    if (static_cast<uint32_t>(lower) < 128 && config_.inputMethod == InputMethod::UserDefined) {
+        const auto action = config_.customKeyMap[static_cast<size_t>(lower)];
+        if (action != TypingAction::None) return action;
+        const wchar_t canonical = CanonicalBracketKey(lower);
+        if (canonical != lower) {
+            const auto bracketAction = config_.customKeyMap[static_cast<size_t>(canonical)];
+            if (bracketAction != TypingAction::None) return bracketAction;
+        }
+    }
+    return ClassifyKey(lower, IsTelexMode(), IsVniMode());
+}
+
 void TypingEngine::PushKey(wchar_t keyChar, bool uppercase) {
     const bool continuingYe = provisionalYeRawCount_ != 0;
-    if (continuingYe && provisionalYeRawCount_ == kVowelCap) {
+    // A repeated tone on an open, speculative yê is still ambiguous English
+    // input (yeses). Restore before tone escape can erase a physical key.
+    // Closed recovered rhymes retain their explicit canonical edit behavior.
+    const bool repeatsOpenYeTone = continuingYe && states_.size() == 2 &&
+        states_[1].HasTone() &&
+        ActionToTone(ResolveKeyAction(towlower(keyChar))) == states_[1].tone;
+    if (continuingYe && (provisionalYeRawCount_ == kVowelCap || repeatsOpenYeTone)) {
         RestoreProvisionalYe();
     }
     const size_t previousCount = provisionalYeRawCount_;
@@ -222,17 +241,7 @@ void TypingEngine::PushKeyImpl(wchar_t keyChar, bool uppercase) {
     // Other modes (Telex/VNI/SimpleTelex/Combined) use their own base mapping
     // via ClassifyKey; stale customKeyMap entries left over from a previous
     // UserDefined session must not silently override the base.
-    TypingAction overrideAction = TypingAction::None;
-    if (lower < 128 && config_.inputMethod == InputMethod::UserDefined) {
-        overrideAction = config_.customKeyMap[static_cast<uint8_t>(lower)];
-        const wchar_t canonical = CanonicalBracketKey(lower);
-        if (overrideAction == TypingAction::None && canonical != lower) {
-            overrideAction = config_.customKeyMap[static_cast<uint8_t>(canonical)];
-        }
-    }
-    TypingAction action = (overrideAction != TypingAction::None)
-        ? overrideAction
-        : ClassifyKey(lower, IsTelexMode(), IsVniMode());
+    TypingAction action = ResolveKeyAction(lower);
     if (isVniDigitSequence) action = TypingAction::None;
 
     // W7.1+: PostClassify dispatch (Tone:10, Modifier:20, QuickEndConsonant:30).
@@ -389,7 +398,11 @@ bool TypingEngine::HandleToneFsm(TypingAction action,
                         asLiteral(); return true;
                     }
                 }
-                if (HasInvalidAdjacentVowelPair(states_.data(), states_.size())) {
+                if (!hasCachedTarget) { cachedToneTarget = FindToneTarget(); hasCachedTarget = true; }
+                const bool isToneEscape = cachedToneTarget != SIZE_MAX &&
+                    states_[cachedToneTarget].tone == requestedTone;
+                if (HasInvalidAdjacentVowelPair(states_.data(), states_.size(),
+                                                /*allowPendingUuTone=*/!isToneEscape)) {
                     engProt_.bias = LanguageBias::HardEnglish;
                     asLiteral(); return true;
                 }
@@ -619,12 +632,7 @@ bool TypingEngine::CompletePendingCircumflex(wchar_t keyChar, wchar_t lower, boo
         vowel.mod != Modifier::None || literal.HasTone() ||
         (vowel.base != L'a' && vowel.base != L'e' && vowel.base != L'o') ||
         literal.rawIdx != rawInput_.size() - 2) return false;
-    const wchar_t physical = towlower(rawInput_[literal.rawIdx]);
-    TypingAction previous = ClassifyKey(physical, IsTelexMode(), IsVniMode());
-    if (config_.inputMethod == InputMethod::UserDefined && physical < 128 &&
-        config_.customKeyMap[static_cast<size_t>(physical)] != TypingAction::None) {
-        previous = config_.customKeyMap[static_cast<size_t>(physical)];
-    }
+    const TypingAction previous = ResolveKeyAction(towlower(rawInput_[literal.rawIdx]));
     if (ActionToVowel(previous) != vowel.base ||
         (previous != TypingAction::CircumflexA && previous != TypingAction::CircumflexE &&
          previous != TypingAction::CircumflexO)) return false;
@@ -652,14 +660,6 @@ bool TypingEngine::CompletePendingYeTone(TypingAction action) {
     if (action != TypingAction::CircumflexE || escape_.isEscaped() ||
         count < 3 || count >= kVowelCap || rawInput_.size() != count + 1 ||
         states_[0].base != L'y' || states_[1].base != L'e') return false;
-    const auto classify = [this](wchar_t key) {
-        const auto lowerKey = towlower(key);
-        if (config_.inputMethod == InputMethod::UserDefined && lowerKey < 128 &&
-            config_.customKeyMap[static_cast<size_t>(lowerKey)] != TypingAction::None) {
-            return config_.customKeyMap[static_cast<size_t>(lowerKey)];
-        }
-        return ClassifyKey(lowerKey, IsTelexMode(), IsVniMode());
-    };
     size_t toneIndex = SIZE_MAX;
     Tone tone = Tone::None;
     for (size_t i = 0; i < count; ++i) {
@@ -668,11 +668,11 @@ bool TypingEngine::CompletePendingYeTone(TypingAction action) {
         if (i < 2) continue;
         const size_t rawIndex = state.rawIdx;
         if (rawIndex == 0 || rawIndex >= rawInput_.size() - 1) return false;
-        const Tone candidate = ActionToTone(classify(rawInput_[rawIndex]));
+        const Tone candidate = ActionToTone(ResolveKeyAction(towlower(rawInput_[rawIndex])));
         if (candidate == Tone::None) continue;
         if (toneIndex != SIZE_MAX ||
-            ActionToTone(classify(rawInput_[rawIndex - 1])) != Tone::None ||
-            ActionToTone(classify(rawInput_[rawIndex + 1])) != Tone::None) return false;
+            ActionToTone(ResolveKeyAction(towlower(rawInput_[rawIndex - 1]))) != Tone::None ||
+            ActionToTone(ResolveKeyAction(towlower(rawInput_[rawIndex + 1]))) != Tone::None) return false;
         toneIndex = i;
         tone = candidate;
     }
@@ -2130,10 +2130,12 @@ std::wstring TypingEngine::Commit() {
                 if (!raw.empty() && !composed.empty() && std::iswupper(composed[0])) {
                     raw[0] = std::towupper(raw[0]);
                 }
-                // If raw now matches composed (capitalization was the only
-                // difference), skip the restore — the word is effectively
-                // unchanged and should be returned as-is.
-                if (raw == composed) {
+                // Physical key case can differ from PushKey's explicit case
+                // intent at every position. Preserve composed case when it is
+                // the only difference, including after provisional recovery.
+                if (raw.size() == composed.size() &&
+                    std::equal(raw.begin(), raw.end(), composed.begin(),
+                        [](wchar_t a, wchar_t b) { return towlower(a) == towlower(b); })) {
                     Reset();
                     return composed;
                 }

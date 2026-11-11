@@ -84,6 +84,32 @@ TEST(SuggestionDismissalDecisionTest, UnicodeSkipsBaitOnPureBackspaceAndHonorsKe
     }
 }
 
+TEST(SuggestionDismissalDecisionTest, KeepCharsReplacesTextInStrictAndFullFields) {
+    for (bool fullField : {false, true}) {
+        for (bool rejectsWhitespace : {false, true}) {
+            for (auto text : {std::wstring_view{L"đ"}, std::wstring_view{L"face"},
+                              std::wstring_view{L"7"}}) {
+                const auto plan = PlanSuggestionDismissal(
+                    Policy::UnicodeBait, text.size(), text, true);
+                std::wstring field = L"prefix" + std::wstring(text.size(), L'd');
+                const auto capacity = field.size();
+                auto insert = [&](wchar_t ch) {
+                    if (rejectsWhitespace && ch == kUnicodeBaitChar) return;
+                    if (fullField && field.size() >= capacity) return;
+                    field.push_back(ch);
+                };
+                if (plan.emitPrefix) insert(plan.prefixChar);
+                for (std::size_t i = 0; i < plan.effectiveBsCount; ++i) {
+                    if (!field.empty()) field.pop_back();
+                }
+                for (wchar_t ch : text) insert(ch);
+                EXPECT_EQ(field, L"prefix" + std::wstring(text));
+                EXPECT_FALSE(plan.emitPrefix);
+            }
+        }
+    }
+}
+
 TEST(SuggestionDismissalDecisionTest, NativeAlwaysAddsOneDeleteRegardlessOfKeepChars) {
     for (std::size_t count : {1u, 3u, 32u}) {
         for (auto text : {std::wstring_view{}, std::wstring_view{L"tiếng"}}) {

@@ -105,12 +105,10 @@ public:
         return false;
     }
 
-    // Runtime-mutable user setting: when true, pure-BS (text empty)
-    // skips the U+202F bait so a Chromium suggestion popup eats the
-    // BS as a "dismiss-only" gesture, preserving typed chars
-    // ("face" + BS → "face"). When false (default), the bait fires
-    // unconditionally so BS always lands as a real delete — keeps
-    // engine state in sync at the cost of "face" + BS → "fac".
+    // Runtime-mutable user setting: transforms omit the U+202F prefix,
+    // which strict/maxlength web fields may reject. Opting out also gives
+    // up inline-suggestion dismissal on transforms. Pure Backspace always
+    // omits the Unicode prefix. Excel keeps its native-prefix policy.
     // HookEngine pushes the config value on focus change and live
     // ApplyConfig; the injector reads it on every Replace() through
     // PlanSuggestionDismissal. Atomic for cross-thread visibility

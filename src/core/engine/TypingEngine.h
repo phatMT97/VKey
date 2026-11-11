@@ -175,6 +175,7 @@ private:
     [[nodiscard]] bool ToneMatchesExclusion(size_t targetIdx, Tone requestedTone) const noexcept;
 
     // Internal processing
+    [[nodiscard]] TypingAction ResolveKeyAction(wchar_t lower) const noexcept;
     void ProcessChar(wchar_t keyChar, wchar_t lower, bool isUpper);
     void ProcessChar(wchar_t keyChar) { ProcessChar(keyChar, towlower(keyChar), iswupper(keyChar)); }
 

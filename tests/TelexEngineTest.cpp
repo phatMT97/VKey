@@ -12,11 +12,55 @@ namespace {
 
 using Testing::TypeString;
 
+TEST(TelexDelayedModifierRegression, EnglishAutoRestoreRetainsPhysicalToneKeys) {
+    for (const auto method : {InputMethod::Telex, InputMethod::SimpleTelex,
+                              InputMethod::Combined, InputMethod::UserDefined}) {
+        TypingConfig config;
+        config.inputMethod = method;
+        config.spellCheckEnabled = true;
+        if (method == InputMethod::UserDefined) {
+            for (wchar_t key : std::wstring(L"adefjorswxz")) {
+                config.customKeyMap[static_cast<size_t>(key)] = ClassifyKey(key, true, false);
+            }
+        }
+        for (const auto* word : {L"pursuits", L"pursues", L"pursuers", L"buuss",
+                                  L"yeses", L"YESES", L"yesterday"}) {
+            SCOPED_TRACE(::testing::Message() << word << " method=" << static_cast<int>(method));
+            TypingEngine engine(config);
+            TypeString(engine, word);
+            EXPECT_EQ(engine.PeekRaw(), word);
+            EXPECT_EQ(engine.Commit(), word);
+        }
+    }
+}
+
+TEST(TelexDelayedModifierRegression, RepeatedToneDisprovesOpenProvisionalYe) {
+    for (const bool spell : {false, true}) {
+        TypingConfig config;
+        config.spellCheckEnabled = spell;
+        for (const auto* word : {L"yeses", L"yefef", L"yerer", L"yexex", L"yejej"}) {
+            SCOPED_TRACE(::testing::Message() << word << " spell=" << spell);
+            TypingEngine engine(config);
+            TypeString(engine, word);
+            EXPECT_EQ(engine.Peek(), word);
+            EXPECT_EQ(engine.Commit(), word);
+        }
+        config.inputMethod = InputMethod::UserDefined;
+        config.customKeyMap[L'q'] = TypingAction::ToneAcute;
+        config.customKeyMap[L'e'] = TypingAction::CircumflexE;
+        TypingEngine engine(config);
+        for (wchar_t key : std::wstring(L"yeqeq")) engine.PushKey(key, true);
+        EXPECT_EQ(engine.Peek(), L"YEQEQ");
+        EXPECT_EQ(engine.Commit(), L"YEQEQ");
+    }
+}
+
 TEST(TelexDelayedModifierRegression, ToneBeforeVowelModifier) {
     for (bool spell : {false, true}) {
         for (bool modern : {false, true}) {
             for (const auto& [input, expected] : {
                      std::pair{L"luujw", L"lựu"}, std::pair{L"cuusw", L"cứu"},
+                     std::pair{L"luujsw", L"lứu"}, std::pair{L"cuusjw", L"cựu"},
                      std::pair{L"luuwj", L"lựu"}, std::pair{L"cuuws", L"cứu"},
                      std::pair{L"yense", L"yến"}, std::pair{L"yengre", L"yểng"},
                      std::pair{L"yeset", L"yết"}, std::pair{L"yetse", L"yết"},
