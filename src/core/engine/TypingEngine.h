@@ -211,6 +211,10 @@ private:
     // escape, spell-check disabled paths) — once the action is approved,
     // it's the same dispatch. Foundation for G-4 customKeyMap.
     bool ProcessModifier(TypingAction action, wchar_t keyChar);
+    bool CompletePendingYeTone(TypingAction action);
+    bool CompletePendingCircumflex(wchar_t keyChar, wchar_t lower, bool uppercase);
+    void PushKeyImpl(wchar_t keyChar, bool uppercase);
+    void RestoreProvisionalYe();
 
     // Dispatch helpers (HandleModifierAction moved to public IModifierExecutor override above)
     bool WouldModifierRecoverOrEscape(TypingAction action, wchar_t keyChar, wchar_t lower);
@@ -329,6 +333,8 @@ private:
     QuickConsonantState qc_;              // Quick consonant expansion state
     EscapeState escape_;                  // Replaces toneEscaped_ + dModifierEscaped_
     bool activeKeyUppercase_ = false;     // Explicit case intent for the current PushKey call.
+    size_t provisionalYeRawCount_ = 0;
+    uint16_t provisionalYeUppercase_ = 0;
     wchar_t quickStartKey_ = 0;          // original key for quick start consonant (f/j/w), 0 if none
     EnglishProtectionState engProt_;     // 3-tier English protection state
     mutable std::wstring composeBuf_;    // Reusable buffer for ComposeAll() — avoids heap alloc per Peek()

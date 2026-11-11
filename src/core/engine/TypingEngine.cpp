@@ -36,6 +36,7 @@ namespace {
 // around 7-8 CharStates
 // (e.g. `nghiêng` = 7); 16 is generous defensive headroom.
 constexpr size_t kVowelCap = 16;
+static_assert(kVowelCap <= 16, "Provisional case receipt must fit in uint16_t");
 
 //=============================================================================
 // Key mapping helpers
@@ -107,7 +108,7 @@ constexpr int ToneIndex(Tone tone) noexcept {
 
 TypingEngine::TypingEngine(const TypingConfig& config)
     : config_(config) {
-    states_.reserve(8);
+    states_.reserve(kVowelCap);
     rawInput_.reserve(12);
     escRawHistory_.reserve(12);
     ruleRegistry_.Register(std::make_unique<EngineRule::ToneRule>(*this));
@@ -126,6 +127,45 @@ void TypingEngine::PushChar(wchar_t keyChar) {
 }
 
 void TypingEngine::PushKey(wchar_t keyChar, bool uppercase) {
+    const bool continuingYe = provisionalYeRawCount_ != 0;
+    if (continuingYe && provisionalYeRawCount_ == kVowelCap) {
+        RestoreProvisionalYe();
+    }
+    const size_t previousCount = provisionalYeRawCount_;
+    PushKeyImpl(keyChar, uppercase);
+    if (previousCount == 0 || provisionalYeRawCount_ == 0) return;
+    // Escapes may erase raw keys. Their explicit user intent supersedes the
+    // provisional reading; never replay them as speculative English letters.
+    if (escape_.isEscaped() || rawInput_.size() != previousCount + 1) {
+        provisionalYeRawCount_ = 0;
+        return;
+    }
+    if (uppercase) provisionalYeUppercase_ |= static_cast<uint16_t>(1u << previousCount);
+    provisionalYeRawCount_ = rawInput_.size();
+    if (Phonology::ValidateSyllableState(states_.data(), states_.size(), config_.allowZwjf)
+        == Phonology::SyllableState::Invalid) {
+        RestoreProvisionalYe();
+    }
+}
+
+void TypingEngine::RestoreProvisionalYe() {
+    // rawInput still contains every physical scalar since recovery, while
+    // the bitset preserves case intent independently of physical key case.
+    states_.resize(provisionalYeRawCount_);
+    for (size_t i = 0; i < provisionalYeRawCount_; ++i) {
+        CharState literal;
+        literal.base = towlower(rawInput_[i]);
+        literal.isUpper = (provisionalYeUppercase_ & (1u << i)) != 0;
+        literal.rawIdx = i;
+        states_[i] = literal;
+    }
+    provisionalYeRawCount_ = 0;
+    provisionalYeUppercase_ = 0;
+    engProt_.bias = LanguageBias::HardEnglish;
+    UpdateSpellState();
+}
+
+void TypingEngine::PushKeyImpl(wchar_t keyChar, bool uppercase) {
     // No buffer cap: game-compatible Telex keeps V mode active while WASD-spamming
     // can exceed any fixed limit. Relies on Reset() hooks (focus, click, space, enter)
     // to bound growth in practice.
@@ -211,6 +251,7 @@ void TypingEngine::PushKey(wchar_t keyChar, bool uppercase) {
 
     // 3. Regular character (Tone, Modifier, QuickStart, QuickEnd all handled
     // via the rule registry above).
+    if (CompletePendingCircumflex(keyChar, lower, isUpper)) return;
     ProcessChar(keyChar, lower, isUpper);
     FinalizeRegularChar();
 }
@@ -565,7 +606,104 @@ void TypingEngine::FinalizeRegularChar() {
     if (IsTelexMode()) CheckZwjfInitialBias(states_.data(), states_.size(), config_, engProt_);
 }
 
+bool TypingEngine::CompletePendingCircumflex(wchar_t keyChar, wchar_t lower, bool uppercase) {
+    // An open syllable may reject a repeated vowel as a typo. A subsequent
+    // rhyme closure can prove that it was the circumflex key after all.
+    // Keep the rejected spelling literal until the complete candidate validates.
+    const size_t count = states_.size();
+    if (!config_.spellCheckEnabled || escape_.isEscaped() || count < 3 ||
+        count > kVowelCap || rawInput_.size() < 3) return false;
+    const auto& literal = states_.back();
+    const auto& vowel = states_[count - 2];
+    if (literal.base != vowel.base || literal.mod != Modifier::None ||
+        vowel.mod != Modifier::None || literal.HasTone() ||
+        (vowel.base != L'a' && vowel.base != L'e' && vowel.base != L'o') ||
+        literal.rawIdx != rawInput_.size() - 2) return false;
+    const wchar_t physical = towlower(rawInput_[literal.rawIdx]);
+    TypingAction previous = ClassifyKey(physical, IsTelexMode(), IsVniMode());
+    if (config_.inputMethod == InputMethod::UserDefined && physical < 128 &&
+        config_.customKeyMap[static_cast<size_t>(physical)] != TypingAction::None) {
+        previous = config_.customKeyMap[static_cast<size_t>(physical)];
+    }
+    if (ActionToVowel(previous) != vowel.base ||
+        (previous != TypingAction::CircumflexA && previous != TypingAction::CircumflexE &&
+         previous != TypingAction::CircumflexO)) return false;
+    std::array<CharState, kVowelCap> saved;
+    std::copy_n(states_.begin(), count, saved.begin());
+    states_.pop_back();
+    SetVowelMod(count - 2, Modifier::Circumflex);
+    RelocateToneToTarget();
+    ProcessChar(keyChar, lower, uppercase);
+    if (Phonology::ValidateSyllableState(states_.data(), states_.size(), config_.allowZwjf)
+        != Phonology::SyllableState::Valid) {
+        std::copy_n(saved.begin(), count, states_.begin());
+        return false;
+    }
+    engProt_.bias = LanguageBias::Vietnamese;
+    FinalizeRegularChar();
+    return true;
+}
+
+bool TypingEngine::CompletePendingYeTone(TypingAction action) {
+    // A later circumflex can prove that a previously literal tone key was
+    // Vietnamese intent, even when the coda was typed between the two marks.
+    // Repeated/escaped actions never acquire that permission.
+    const size_t count = states_.size();
+    if (action != TypingAction::CircumflexE || escape_.isEscaped() ||
+        count < 3 || count >= kVowelCap || rawInput_.size() != count + 1 ||
+        states_[0].base != L'y' || states_[1].base != L'e') return false;
+    const auto classify = [this](wchar_t key) {
+        const auto lowerKey = towlower(key);
+        if (config_.inputMethod == InputMethod::UserDefined && lowerKey < 128 &&
+            config_.customKeyMap[static_cast<size_t>(lowerKey)] != TypingAction::None) {
+            return config_.customKeyMap[static_cast<size_t>(lowerKey)];
+        }
+        return ClassifyKey(lowerKey, IsTelexMode(), IsVniMode());
+    };
+    size_t toneIndex = SIZE_MAX;
+    Tone tone = Tone::None;
+    for (size_t i = 0; i < count; ++i) {
+        const auto& state = states_[i];
+        if (state.HasModifier() || state.HasTone() || state.rawIdx != i) return false;
+        if (i < 2) continue;
+        const size_t rawIndex = state.rawIdx;
+        if (rawIndex == 0 || rawIndex >= rawInput_.size() - 1) return false;
+        const Tone candidate = ActionToTone(classify(rawInput_[rawIndex]));
+        if (candidate == Tone::None) continue;
+        if (toneIndex != SIZE_MAX ||
+            ActionToTone(classify(rawInput_[rawIndex - 1])) != Tone::None ||
+            ActionToTone(classify(rawInput_[rawIndex + 1])) != Tone::None) return false;
+        toneIndex = i;
+        tone = candidate;
+    }
+    if (toneIndex == SIZE_MAX) return false;
+    std::array<CharState, kVowelCap> saved;
+    std::copy_n(states_.begin(), count, saved.begin());
+    states_.erase(states_.begin() + toneIndex);
+    states_[1].mod = Modifier::Circumflex;
+    const size_t target = FindToneTarget();
+    if (target != SIZE_MAX) states_[target].tone = tone;
+    const bool valid = target != SIZE_MAX && Phonology::ValidateSyllableState(
+        states_.data(), states_.size(), config_.allowZwjf) == Phonology::SyllableState::Valid;
+    if (!valid) {
+        states_.resize(count);
+        std::copy_n(saved.begin(), count, states_.begin());
+        return false;
+    }
+    states_[target].toneRawIdx = saved[toneIndex].rawIdx;
+    provisionalYeRawCount_ = rawInput_.size();
+    provisionalYeUppercase_ = 0;
+    for (size_t i = 0; i < count; ++i) {
+        if (saved[i].isUpper) provisionalYeUppercase_ |= static_cast<uint16_t>(1u << i);
+    }
+    if (activeKeyUppercase_) provisionalYeUppercase_ |= static_cast<uint16_t>(1u << count);
+    engProt_.bias = LanguageBias::Vietnamese;
+    UpdateSpellState();
+    return true;
+}
+
 bool TypingEngine::HandleModifierAction(TypingAction action, wchar_t keyChar, wchar_t lower, bool /*isUpper*/) {
+    if (CompletePendingYeTone(action)) return true;
     const bool isTelexModifier = IsTelexModifierAction(action);
     const bool isVniModifier = IsVniModifierAction(action);
     const bool isUserOnly = IsUserDefinedOnlyAction(action);
@@ -774,6 +912,7 @@ bool TypingEngine::ProcessClearTone() {
 
     target.tone = Tone::None;
     target.toneRawIdx = SIZE_MAX;
+    provisionalYeRawCount_ = 0;
     return true;
 }
 
@@ -1157,7 +1296,10 @@ bool TypingEngine::HandleAdjacentCircumflex(TypingAction action, wchar_t c) {
                     if (config_.spellCheckEnabled) {
                         size_t targetIdx =
                             static_cast<size_t>(states_.rend() - it - 1);
-                        if (ShouldRejectModifier(targetIdx, Modifier::Circumflex, targetBase))
+                        if (!WouldBeValidSyllable(targetIdx, Modifier::Circumflex,
+                                                  /*clearCircumflexIdx=*/SIZE_MAX,
+                                                  /*speculateRelocateTone=*/true) &&
+                            !WouldModifierKeyMatchExclusion(targetBase))
                             break;
                     } else if (consonantsCrossed >= 1) {
                         engProt_.bias = LanguageBias::HardEnglish;
@@ -1845,6 +1987,9 @@ const std::wstring& TypingEngine::ComposeAll() const {
 //-----------------------------------------------------------------------------
 
 void TypingEngine::Backspace() {
+    // Editing the visible Vietnamese reading accepts it, as with canonical
+    // input; old physical positions no longer describe the edited composition.
+    provisionalYeRawCount_ = 0;
     if (states_.empty()) return;
     escape_.clear();  // Allow đ re-trigger + Vietnamese re-trigger after user edits
 
@@ -2013,6 +2158,8 @@ void TypingEngine::Reset() {
     escape_.clear();
     quickStartKey_ = 0;
     engProt_.Reset();
+    provisionalYeRawCount_ = 0;
+    provisionalYeUppercase_ = 0;
 }
 
 bool TypingEngine::SeedFromText(const std::wstring& text) {
