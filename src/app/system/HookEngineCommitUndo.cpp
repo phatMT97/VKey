@@ -84,6 +84,11 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
         }
     }
     if (commitState_.IsReady() && vkCode == VK_BACK && engine_->Count() == 0) {
+        if (isAutorepeatBs_) {
+            HOOK_LOG(L"  commit-undo: autorepeat BS in Ready → cancel undo and passthrough");
+            CancelCommitUndo();
+            return KeyOutcome::Pass;
+        }
         if (commitState_.PendingTriggerCount() > 0) {
             // Extra trigger chars still on screen (e.g., "a==" → need to delete both '=' before undo)
             commitState_.DecrementPendingTriggers();
@@ -275,6 +280,11 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
                 ? KeyOutcome::Eat
                 : KeyOutcome::Pass;
         } else if (vkCode == VK_BACK) {
+            if (isAutorepeatBs_) {
+                HOOK_LOG(L"  commit-undo: autorepeat BS in Primed → cancel undo and passthrough");
+                CancelCommitUndo();
+                return KeyOutcome::Pass;
+            }
             // Backspace → replay saved chars, then backspace into the word
             HOOK_LOG(L"  commit-undo: replaying + backspace (stack_top='%s' stackSize=%zu prevComp='%s' synthPending=%d)",
                      commitState_.StackEmpty() ? L"<empty>" : commitState_.StackTop().text.c_str(),
@@ -304,7 +314,36 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
                              vkCode);
                     CancelCommitUndo();
                     break;
-                case PrimedTriggerAction::ReEnterReady:
+                case PrimedTriggerAction::ReEnterReady: {
+                    // Check if the committed word at caret matches a macro table entry
+                    const bool macroOn = macroEnabled_.load(std::memory_order_acquire);
+                    auto cfgSnap = configSnapshot_.load(std::memory_order_acquire);
+                    if (macroOn && cfgSnap && !cfgSnap->macroTable.empty() && !commitState_.StackEmpty()
+                        && IsMacroTrigger(vkCode)) {
+                        const std::wstring& topText = commitState_.StackTop().text;
+                        bool matchedMacro = (cfgSnap->macroTable.find(topText) != cfgSnap->macroTable.end());
+                        if (!matchedMacro) {
+                            std::wstring lowerText = topText;
+                            for (auto& c : lowerText) c = towlower(c);
+                            matchedMacro = (cfgSnap->macroTable.find(lowerText) != cfgSnap->macroTable.end());
+                        }
+                        if (matchedMacro) {
+                            HOOK_LOG(L"  commit-undo: word '%s' in Primed matches macro table, replaying for expansion",
+                                     topText.c_str());
+                            if (ReplayCommittedChars(/*preferVisibleText=*/true)) {
+                                auto res = TryExpandMacro(triggerChar);
+                                if (res == MacroResult::ExpandedEatTrigger) return KeyOutcome::Eat;
+                                if (res == MacroResult::ExpandedPassTrigger) {
+                                    if (dispatcher_.SynthEventsPending() > 0) {
+                                        InjectKey(vkCode);
+                                        return KeyOutcome::Eat;
+                                    }
+                                    return KeyOutcome::Pass;
+                                }
+                            }
+                        }
+                    }
+
                     HOOK_LOG(L"  commit-undo: space in Primed — re-enter Ready (vk=0x%02X)",
                              vkCode);
                     commitState_.SetPendingTriggers(0);
@@ -329,6 +368,7 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
                         HOOK_LOG(L"  commit-undo: space in Primed injector failed, passthrough");
                     }
                     return KeyOutcome::Pass;
+                }
                 case PrimedTriggerAction::Idle:
                     commitState_.SetIdle();
                     break;

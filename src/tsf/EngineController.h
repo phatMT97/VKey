@@ -59,6 +59,7 @@ public:
     void ClearMacroTracking() noexcept;
     [[nodiscard]] bool IsMacroCommitTrigger(UINT vkCode) const noexcept;
     [[nodiscard]] bool HasMacroCandidate() const noexcept;
+    [[nodiscard]] bool HasMacroContextCandidate() const noexcept;
     [[nodiscard]] bool IsEnglishMacroTrackingActive() const noexcept;
     [[nodiscard]] bool WouldExpandMacroTrigger(ITfContext* pContext,
                                                UINT vkCode,
@@ -332,6 +333,7 @@ private:
     bool contextBlocked_ = false;        // Combined current TSF input gates
     bool verdictLogged_ = false;         // Context verdict already logged for this enable-session
     bool isScintillaApp_ = false;        // Cached: current app is Scintilla-based (Notepad++, etc.)
+    bool isChromiumApp_ = false;         // Cached: current app is Chromium/Electron-based (Chrome, Edge, Discord, VS Code)
     bool digitLedWord_ = false;          // True = current word started with a digit (VNI/Combined/UserDefined) → treat whole word as English (pass through; no composition)
 
     // Macros are not represented in SharedState because the table is variable

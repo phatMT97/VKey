@@ -1006,6 +1006,7 @@ set(NEXTKEY_TEST_SOURCES
     tests/CjkSwitchDecisionTest.cpp
     tests/ExternalInjectedKeyDecisionTest.cpp
     tests/LeakedKeyDuringSendDecisionTest.cpp
+    tests/InputQueueDecisionTest.cpp
     tests/PerAppModeDecisionTest.cpp
     tests/WebView2CacheDecisionTest.cpp
     tests/CommitUndoExemptionTest.cpp

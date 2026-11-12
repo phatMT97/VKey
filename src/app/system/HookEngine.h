@@ -29,7 +29,9 @@
 #include "core/pipeline/IMacroExecutor.h"
 #include "core/pipeline/Coordinator.h"
 #include "core/pipeline/OutputChannel.h"
+#include "core/InputQueueDecision.h"
 #include <Windows.h>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -876,6 +878,9 @@ private:
     bool modAltDown_ = false;
     bool modWinDown_ = false;
     bool otherKeyPressed_ = false;
+    bool isAutorepeatBs_ = false;        // True when VK_BACK is rapidly repeating (<80ms without KeyUp)
+    DWORD lastDownVk_ = 0;               // Last key-down VK code for autorepeat detection
+    DWORD lastBackspaceTs_ = 0;          // Timestamp of previous VK_BACK down
     // Latched true the moment a *second* modifier joins an existing modifier
     // hold (e.g. Shift pressed while Ctrl is down), cleared when every modifier
     // is released. Distinguishes the trailing release of a multi-modifier combo
@@ -884,6 +889,42 @@ private:
     // mode-toggle left the trailing Ctrl release toggling tempEngineOff_ (the
     // default single-Ctrl toggle-enabled binding), mangling the next word.
     bool modComboSeen_ = false;
+
+    // Centralized Non-blocking Input Queue (Task 3.1 & 3.2):
+    // Queues physical keys arriving while dispatcher_ is sending synthetic events.
+    struct QueuedPhysicalKey {
+        DWORD vkCode = 0;
+        DWORD scanCode = 0;
+        DWORD flags = 0;
+        bool isDown = false;
+        bool shift = false;
+        bool capsLock = false;
+        bool ctrl = false;
+        bool alt = false;
+        bool win = false;
+    };
+    static constexpr size_t kMaxQueuedKeys = 16;
+    std::array<QueuedPhysicalKey, kMaxQueuedKeys> queuedKeys_{};
+    size_t queueLength_ = 0;
+    bool isDrainingQueue_ = false;
+
+    bool EnqueuePhysicalKey(DWORD vkCode, DWORD scanCode, DWORD flags, bool isDown,
+                            bool shift, bool capsLock, bool ctrl, bool alt, bool win) noexcept;
+    void DrainInputQueue();
+
+    // Echo-Matching Buffer (Task 3.3):
+    // Tracks recently dispatched synthetic keys to match and consume echo events
+    // when third-party software (RDP, anticheat) strips dwExtraInfo.
+    struct EchoEntry {
+        DWORD vkCode = 0;
+        DWORD timestamp = 0;
+    };
+    static constexpr size_t kMaxEchoEntries = 32;
+    std::array<EchoEntry, kMaxEchoEntries> echoBuffer_{};
+    size_t echoCount_ = 0;
+
+    void RecordEchoEvent(DWORD vkCode) noexcept;
+    bool MatchAndConsumeEcho(DWORD vkCode) noexcept;
 
     // Wave 3 PR 3.2 — CJK layout state (layoutSuppressed_/modeBeforeCjk_/
     // cachedIsCompatLayout_) and focused-child cache (cachedFocusedHwnd_/

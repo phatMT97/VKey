@@ -58,7 +58,7 @@ public:
     /// (replay must reproduce exact engine state including erasures).
     static constexpr wchar_t kBackspaceMarker = L'\b';
     /// Max stacked commits (LIFO). Limits backward-undo depth and memory.
-    static constexpr std::size_t kMaxStack = 3;
+    static constexpr std::size_t kMaxStack = 12;
     /// Cold-reserved capacity for engine-supported committed text/history.
     static constexpr std::size_t kReplayHistoryReserve = 256;
     /// Auto-expire Ready after this many ms — cheap insurance against any
