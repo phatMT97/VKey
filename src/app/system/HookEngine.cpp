@@ -1215,9 +1215,13 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 const bool ctrl  = preDrainLCtrl  || preDrainRCtrl;
                 const bool alt   = preDrainLAlt   || preDrainRAlt;
                 const bool win   = preDrainLWin   || preDrainRWin;
-                if (self->ProcessKeyDown(pKey->vkCode, pKey->scanCode, pKey->flags,
-                                         shift, preDrainCapsLock, ctrl,
-                                         alt, win)) {
+                const bool eaten = self->ProcessKeyDown(pKey->vkCode, pKey->scanCode, pKey->flags,
+                                                        shift, preDrainCapsLock, ctrl,
+                                                        alt, win);
+                // Clear sendingForVk_ immediately: transform injection is complete if eaten,
+                // or key was not consumed by IME (passthrough) so key-up must not be swallowed (Issue 3).
+                self->sendingForVk_.store(0, std::memory_order_relaxed);
+                if (eaten) {
                     HOOK_LOG(L"  → EATEN (key-down vk=0x%02X)", pKey->vkCode);
                     if (!self->dispatcher_.IsSending() && self->queueLength_ > 0) {
                         self->DrainInputQueue();
@@ -1225,6 +1229,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                     return 1;  // Eat the keystroke
                 }
             } else if (isUp) {
+                self->sendingForVk_.store(0, std::memory_order_relaxed);
                 if (self->ProcessKeyUp(pKey->vkCode, pKey->flags)) {
                     return 1;  // Eat the keystroke
                 }
@@ -1240,9 +1245,11 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
         // engine + previousComposition + per-word flags in an undefined state.
         // ResetComposition clears them so the next keystroke starts fresh
         // instead of compounding the corruption.
+        if (self) self->sendingForVk_.store(0, std::memory_order_relaxed);
         if (self) self->ResetComposition();
     } catch (...) {
         CrashLog(L"HookEngine::LowLevelKeyboardProc", "(non-std exception)");
+        if (self) self->sendingForVk_.store(0, std::memory_order_relaxed);
         if (self) self->ResetComposition();
     }
     return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -2544,6 +2551,7 @@ void HookEngine::ResetComposition() {
     // Mouse click, Ctrl/Alt shortcut (step 5), exception handler — all funnel here.
     // Each is a "sentence-context broke" event, so drop any pending sentence arm.
     autoCapState_ = AutoCapState::Idle;
+    queueOverflowed_ = false;
     dispatcher_.ResetSynthEvents();  // Pending synthetics from old context are irrelevant after reset
     dispatcher_.ResetLastRealSynthTime();
 }
@@ -4295,30 +4303,47 @@ bool HookEngine::EnqueuePhysicalKey(DWORD vkCode, DWORD scanCode, DWORD flags, b
                                     bool lctrl, bool rctrl,
                                     bool lalt, bool ralt,
                                     bool lwin, bool rwin) noexcept {
-    if (queueLength_ >= kMaxQueuedKeys) {
-        // Queue at capacity during active send: pop and replay the oldest event
-        // to the host application in strict FIFO order, ensuring no stuck keys (if key-up)
-        // and no lost characters (if key-down) (Issue 1).
-        QueuedPhysicalKey oldest = queuedKeys_[0];
-        for (size_t i = 1; i < queueLength_; ++i) {
-            queuedKeys_[i - 1] = queuedKeys_[i];
-        }
-        queueLength_--;
-        ReplayPhysicalKeyEvent(oldest);
-    }
-    queuedKeys_[queueLength_++] = QueuedPhysicalKey{
+    const QueuedPhysicalKey newKey{
         vkCode, scanCode, flags, isDown,
         lshift, rshift, capsLock,
         lctrl, rctrl,
         lalt, ralt,
         lwin, rwin
     };
+
+    if (queueLength_ >= kMaxQueuedKeys) {
+        // Queue at capacity during active send:
+        // Do NOT run engine (ProcessQueuedKey) or start nested injections during
+        // an in-flight send transaction (Issue 1).
+        // Secure the slot for newKey BEFORE calling anything that could re-enter
+        // to prevent out-of-bounds array writes if re-entrant input arrives.
+        const QueuedPhysicalKey oldest = queuedKeys_[0];
+        for (size_t i = 1; i < queueLength_; ++i) {
+            queuedKeys_[i - 1] = queuedKeys_[i];
+        }
+        queuedKeys_[kMaxQueuedKeys - 1] = newKey;
+
+        // Mark overflow so DrainInputQueue resets composition state once the outer
+        // transaction completes, keeping engine and screen synchronized.
+        queueOverflowed_ = true;
+
+        // Replay the oldest event directly to host to avoid stuck keys (if up)
+        // or dropped characters (if down).
+        ReplayPhysicalKeyEvent(oldest);
+        return true;
+    }
+
+    queuedKeys_[queueLength_++] = newKey;
     return true;
 }
 
 void HookEngine::ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept {
     // Deliver a single key down or key up event to the host application,
     // preserving the physical modifier context that was active when pressed (Issues 1, 2, 3).
+    // Ensure sendingForVk_ is 0 during replay so EatNoIntent does not mistakenly swallow
+    // the user's subsequent physical key-up on Chromium/Electron hosts (Issue 3).
+    sendingForVk_.store(0, std::memory_order_relaxed);
+
     std::array<INPUT, 24> buf{};
     UINT cursor = 0;
 
@@ -4348,7 +4373,7 @@ void HookEngine::ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept {
             }
         };
 
-        // Issue 3: check and adjust each physical modifier side explicitly
+        // Check and adjust each physical modifier side explicitly
         // to avoid stuck or mismatched shortcuts when holding right-side keys.
         adjust(key.lctrl,  curLCtrl,  VK_LCONTROL, false);
         adjust(key.rctrl,  curRCtrl,  VK_RCONTROL, true);
@@ -4393,10 +4418,41 @@ void HookEngine::ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept {
     }
 
     if (cursor > 0) {
-        // Issue 2: Wrap replay in sending scope so IsSending() is true during dispatch,
+        // Wrap replay in sending scope so IsSending() is true during dispatch,
         // preventing re-entering physical keys from jumping ahead of pending queued keys.
         OutputDispatcher::ScopedSending sendingScope(dispatcher_);
         (void)Output::Internal::TrackedSendInput(buf.data(), cursor);
+    }
+}
+
+void HookEngine::ProcessQueuedKey(const QueuedPhysicalKey& key) {
+    if (key.isDown) {
+        sendingForVk_.store(key.vkCode, std::memory_order_relaxed);
+        struct SendingVkScope {
+            std::atomic<DWORD>& vk;
+            ~SendingVkScope() noexcept { vk.store(0, std::memory_order_relaxed); }
+        } vkScope(sendingForVk_);
+
+        const bool shift = key.lshift || key.rshift;
+        const bool ctrl  = key.lctrl  || key.rctrl;
+        const bool alt   = key.lalt   || key.ralt;
+        const bool win   = key.lwin   || key.rwin;
+        const bool eaten = ProcessKeyDown(
+            key.vkCode, key.scanCode, key.flags,
+            shift, key.capsLock, ctrl, alt, win);
+        // Clear sendingForVk_ immediately after ProcessKeyDown: transform is done or key is passthrough (Issue 3).
+        sendingForVk_.store(0, std::memory_order_relaxed);
+        if (!eaten) {
+            // Not consumed by IME: deliver single KEY-DOWN to host app with preserved modifier state (Issues 1, 2, 3)
+            ReplayPhysicalKeyEvent(key);
+        }
+    } else {
+        sendingForVk_.store(0, std::memory_order_relaxed);
+        const bool eaten = ProcessKeyUp(key.vkCode, key.flags);
+        if (!eaten) {
+            // Not consumed by IME: deliver single KEY-UP to host app to prevent stuck keys (Issue 1)
+            ReplayPhysicalKeyEvent(key);
+        }
     }
 }
 
@@ -4406,7 +4462,20 @@ void HookEngine::DrainInputQueue() {
         return;
     }
 
-    isDrainingQueue_ = true;
+    // RAII guard ensures isDrainingQueue_ is reset if an exception unwinds from ProcessQueuedKey (Issue 2).
+    struct DrainScope {
+        bool& flag;
+        explicit DrainScope(bool& f) noexcept : flag(f) { flag = true; }
+        ~DrainScope() noexcept { flag = false; }
+    } drainScope(isDrainingQueue_);
+
+    if (queueOverflowed_) {
+        queueOverflowed_ = false;
+        // On queue overflow, bypass engine and reset active composition so the engine
+        // does not desynchronize against events already delivered to the screen.
+        ResetComposition();
+    }
+
     while (queueLength_ > 0 && !dispatcher_.IsSending()) {
         QueuedPhysicalKey key = queuedKeys_[0];
         for (size_t i = 1; i < queueLength_; ++i) {
@@ -4414,28 +4483,8 @@ void HookEngine::DrainInputQueue() {
         }
         queueLength_--;
 
-        if (key.isDown) {
-            sendingForVk_.store(key.vkCode, std::memory_order_relaxed);
-            const bool shift = key.lshift || key.rshift;
-            const bool ctrl  = key.lctrl  || key.rctrl;
-            const bool alt   = key.lalt   || key.ralt;
-            const bool win   = key.lwin   || key.rwin;
-            const bool eaten = ProcessKeyDown(
-                key.vkCode, key.scanCode, key.flags,
-                shift, key.capsLock, ctrl, alt, win);
-            if (!eaten) {
-                // Not consumed by IME: deliver single KEY-DOWN to host app with preserved modifier state (Issues 1, 2, 3)
-                ReplayPhysicalKeyEvent(key);
-            }
-        } else {
-            const bool eaten = ProcessKeyUp(key.vkCode, key.flags);
-            if (!eaten) {
-                // Not consumed by IME: deliver single KEY-UP to host app to prevent stuck keys (Issue 1)
-                ReplayPhysicalKeyEvent(key);
-            }
-        }
+        ProcessQueuedKey(key);
     }
-    isDrainingQueue_ = false;
 }
 
 void HookEngine::RecordEchoEvent(DWORD vkCode, DWORD scanCode, bool isUp) noexcept {

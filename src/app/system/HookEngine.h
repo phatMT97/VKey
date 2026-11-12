@@ -911,6 +911,7 @@ private:
     std::array<QueuedPhysicalKey, kMaxQueuedKeys> queuedKeys_{};
     size_t queueLength_ = 0;
     bool isDrainingQueue_ = false;
+    bool queueOverflowed_ = false;
 
     bool EnqueuePhysicalKey(DWORD vkCode, DWORD scanCode, DWORD flags, bool isDown,
                             bool lshift, bool rshift, bool capsLock,
@@ -918,6 +919,7 @@ private:
                             bool lalt, bool ralt,
                             bool lwin, bool rwin) noexcept;
     void DrainInputQueue();
+    void ProcessQueuedKey(const QueuedPhysicalKey& key);
     void ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept;
 
     // Echo-Matching Buffer (Task 3.3 & Issues 4, 5):
