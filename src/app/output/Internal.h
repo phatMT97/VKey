@@ -41,6 +41,9 @@ using SynthCounterFn       = void (*)(int delta) noexcept;
 // Issue 5: callback fired before SendInput so HookEngine can record the exact
 // dispatched synthetic events for precise echo-matching (down/up, vk, scan).
 using SynthEventsDispatchedFn = void (*)(const INPUT* events, UINT count) noexcept;
+// Issue 4: callback fired when SendInput partially fails (sent < count) to rollback
+// unsent entries from the echo buffer so they don't linger and match external events.
+using SynthEventsRollbackFn   = void (*)(const INPUT* unsentEvents, UINT count) noexcept;
 
 // Test seams. Production initializes to the real Win32 APIs.
 extern SendInputFn           g_sendInput;
@@ -50,6 +53,7 @@ extern SendMessageTimeoutWFn g_sendMessageTimeoutW;
 extern SleepFn               g_sleep;
 extern SynthCounterFn        g_synthCounterCallback;  // null = disabled
 extern SynthEventsDispatchedFn g_synthEventsDispatchedCallback;  // null = disabled
+extern SynthEventsRollbackFn   g_synthEventsRollbackCallback;    // null = disabled
 extern NativePrefixLayoutFn  g_nativePrefixLayout;
 extern ToUnicodeExFn         g_toUnicodeEx;
 

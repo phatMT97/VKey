@@ -106,6 +106,29 @@ public:
     [[nodiscard]] bool IsSending() const noexcept {
         return sending_.load(std::memory_order_acquire);
     }
+    void SetSending(bool sending) noexcept {
+        sending_.store(sending, std::memory_order_release);
+    }
+
+    /// RAII guard for sending state (Issue 2). Ensures IsSending() remains true
+    /// during replay or injection, and restores previous state upon destruction.
+    class ScopedSending {
+    public:
+        explicit ScopedSending(OutputDispatcher& dispatcher) noexcept
+            : dispatcher_(dispatcher),
+              prev_(dispatcher.sending_.exchange(true, std::memory_order_acq_rel)) {}
+
+        ~ScopedSending() noexcept {
+            dispatcher_.sending_.store(prev_, std::memory_order_release);
+        }
+
+        ScopedSending(const ScopedSending&) = delete;
+        ScopedSending& operator=(const ScopedSending&) = delete;
+
+    private:
+        OutputDispatcher& dispatcher_;
+        bool prev_;
+    };
 
     // ── Synth tracking ──────────────────────────────────────────────
     [[nodiscard]] int SynthEventsPending() const noexcept {

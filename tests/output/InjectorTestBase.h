@@ -105,7 +105,9 @@ protected:
         Internal::g_sleep                 = ::Sleep;
         Internal::g_sendMessageW          = ::SendMessageW;
         Internal::g_sendMessageTimeoutW   = ::SendMessageTimeoutW;
-        Internal::g_synthCounterCallback  = nullptr;
+        Internal::g_synthCounterCallback          = nullptr;
+        Internal::g_synthEventsDispatchedCallback = nullptr;
+        Internal::g_synthEventsRollbackCallback   = nullptr;
         Internal::g_nativePrefixLayout = originalNativePrefixLayout_;
         Internal::g_toUnicodeEx = originalToUnicodeEx_;
         Internal::g_inFlightPrefixKeys = 0;

@@ -897,11 +897,15 @@ private:
         DWORD scanCode = 0;
         DWORD flags = 0;
         bool isDown = false;
-        bool shift = false;
+        bool lshift = false;
+        bool rshift = false;
         bool capsLock = false;
-        bool ctrl = false;
-        bool alt = false;
-        bool win = false;
+        bool lctrl = false;
+        bool rctrl = false;
+        bool lalt = false;
+        bool ralt = false;
+        bool lwin = false;
+        bool rwin = false;
     };
     static constexpr size_t kMaxQueuedKeys = 64;
     std::array<QueuedPhysicalKey, kMaxQueuedKeys> queuedKeys_{};
@@ -909,11 +913,14 @@ private:
     bool isDrainingQueue_ = false;
 
     bool EnqueuePhysicalKey(DWORD vkCode, DWORD scanCode, DWORD flags, bool isDown,
-                            bool shift, bool capsLock, bool ctrl, bool alt, bool win) noexcept;
+                            bool lshift, bool rshift, bool capsLock,
+                            bool lctrl, bool rctrl,
+                            bool lalt, bool ralt,
+                            bool lwin, bool rwin) noexcept;
     void DrainInputQueue();
     void ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept;
 
-    // Echo-Matching Buffer (Task 3.3 & Issue 5):
+    // Echo-Matching Buffer (Task 3.3 & Issues 4, 5):
     // Tracks recently dispatched synthetic keys to match and consume echo events
     // when third-party software (RDP, anticheat) strips dwExtraInfo.
     struct EchoEntry {
@@ -928,6 +935,7 @@ private:
 
     void RecordEchoEvent(DWORD vkCode, DWORD scanCode, bool isUp) noexcept;
     void RecordDispatchedEvents(const INPUT* events, UINT count) noexcept;
+    void RollbackDispatchedEvents(const INPUT* unsentEvents, UINT count) noexcept;
     bool ConsumeEchoEvent(DWORD vkCode, DWORD scanCode, bool isUp) noexcept;
     bool MatchAndConsumeEcho(DWORD vkCode, DWORD scanCode, bool isUp) noexcept;
 

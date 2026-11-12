@@ -222,6 +222,13 @@ bool HookEngine::Start(HINSTANCE hInstance, const TypingConfig& config,
                 self->RecordDispatchedEvents(events, count);
             }
         };
+    NextKey::Output::Internal::g_synthEventsRollbackCallback =
+        [](const INPUT* events, UINT count) noexcept {
+            HookEngine* self = s_instance.load(std::memory_order_relaxed);
+            if (self) {
+                self->RollbackDispatchedEvents(events, count);
+            }
+        };
     currentMethod_.store(config.inputMethod, std::memory_order_release);
     config_.store(std::make_shared<const TypingConfig>(config), std::memory_order_release);
     // Wave 2 (2026-05-23): ApplyConfig is now lock-free (all writes are atomic
@@ -457,6 +464,7 @@ void HookEngine::Stop() {
     // Sprint 1 D10: focusPollTimer_ retired — owner stops its
     // MainThreadWorker (which owns the 200 ms tick) before us.
     NextKey::Output::Internal::g_synthEventsDispatchedCallback = nullptr;
+    NextKey::Output::Internal::g_synthEventsRollbackCallback = nullptr;
     if (s_instance == this) {
         s_instance = nullptr;
     }
@@ -1090,12 +1098,15 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
             // cross-thread path uses AttachThreadInput — Microsoft's docs
             // for AttachThreadInput say it resets the state GetKeyState/
             // GetKeyboardState report for the calling (this hook) thread.
-            const bool preDrainShift    = isDown && (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            const bool preDrainLShift   = isDown && (GetKeyState(VK_LSHIFT) & 0x8000) != 0;
+            const bool preDrainRShift   = isDown && (GetKeyState(VK_RSHIFT) & 0x8000) != 0;
             const bool preDrainCapsLock = isDown && (GetKeyState(VK_CAPITAL) & 0x0001) != 0;
-            const bool preDrainCtrl     = isDown && (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-            const bool preDrainAlt      = isDown && (GetKeyState(VK_MENU) & 0x8000) != 0;
-            const bool preDrainWin      = isDown && ((GetKeyState(VK_LWIN) & 0x8000) != 0 ||
-                                                      (GetKeyState(VK_RWIN) & 0x8000) != 0);
+            const bool preDrainLCtrl    = isDown && (GetKeyState(VK_LCONTROL) & 0x8000) != 0;
+            const bool preDrainRCtrl    = isDown && (GetKeyState(VK_RCONTROL) & 0x8000) != 0;
+            const bool preDrainLAlt     = isDown && (GetKeyState(VK_LMENU) & 0x8000) != 0;
+            const bool preDrainRAlt     = isDown && (GetKeyState(VK_RMENU) & 0x8000) != 0;
+            const bool preDrainLWin     = isDown && (GetKeyState(VK_LWIN) & 0x8000) != 0;
+            const bool preDrainRWin     = isDown && (GetKeyState(VK_RWIN) & 0x8000) != 0;
 
             // Skip events while we're sending (safety backup + defer-and-replay queue).
             if (self->dispatcher_.IsSending()) {
@@ -1129,8 +1140,10 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 }
                 if (queueAction == InputQueueAction::Enqueue) {
                     if (self->EnqueuePhysicalKey(pKey->vkCode, pKey->scanCode, pKey->flags, isDown,
-                                                 preDrainShift, preDrainCapsLock, preDrainCtrl,
-                                                 preDrainAlt, preDrainWin)) {
+                                                 preDrainLShift, preDrainRShift, preDrainCapsLock,
+                                                 preDrainLCtrl, preDrainRCtrl,
+                                                 preDrainLAlt, preDrainRAlt,
+                                                 preDrainLWin, preDrainRWin)) {
                         HOOK_LOG(L"  QUEUED (sending_ in-flight): vk=0x%02X isDown=%d (qlen=%zu)",
                                  pKey->vkCode, isDown ? 1 : 0, self->queueLength_);
                         return 1;  // EAT so the physical key does NOT race into the app ahead of synthetics!
@@ -1198,9 +1211,13 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 // `sending_` branch (above) can recognise this key's own leaked
                 // auto-repeat / key-up during the injection it is about to start.
                 self->sendingForVk_.store(pKey->vkCode, std::memory_order_relaxed);
+                const bool shift = preDrainLShift || preDrainRShift;
+                const bool ctrl  = preDrainLCtrl  || preDrainRCtrl;
+                const bool alt   = preDrainLAlt   || preDrainRAlt;
+                const bool win   = preDrainLWin   || preDrainRWin;
                 if (self->ProcessKeyDown(pKey->vkCode, pKey->scanCode, pKey->flags,
-                                         preDrainShift, preDrainCapsLock, preDrainCtrl,
-                                         preDrainAlt, preDrainWin)) {
+                                         shift, preDrainCapsLock, ctrl,
+                                         alt, win)) {
                     HOOK_LOG(L"  → EATEN (key-down vk=0x%02X)", pKey->vkCode);
                     if (!self->dispatcher_.IsSending() && self->queueLength_ > 0) {
                         self->DrainInputQueue();
@@ -4274,57 +4291,82 @@ void HookEngine::RefreshBrowserRouteOnHookThread(bool forceRead, bool notifyCall
 }
 
 bool HookEngine::EnqueuePhysicalKey(DWORD vkCode, DWORD scanCode, DWORD flags, bool isDown,
-                                    bool shift, bool capsLock, bool ctrl, bool alt, bool win) noexcept {
+                                    bool lshift, bool rshift, bool capsLock,
+                                    bool lctrl, bool rctrl,
+                                    bool lalt, bool ralt,
+                                    bool lwin, bool rwin) noexcept {
     if (queueLength_ >= kMaxQueuedKeys) {
-        // Queue full: flush pending keys first to preserve strict FIFO order (Issue 4)
-        DrainInputQueue();
-        if (queueLength_ >= kMaxQueuedKeys) {
-            // Still in an active send: drop oldest entry to preserve chronological tail
-            for (size_t i = 1; i < queueLength_; ++i) {
-                queuedKeys_[i - 1] = queuedKeys_[i];
-            }
-            queueLength_--;
+        // Queue at capacity during active send: pop and replay the oldest event
+        // to the host application in strict FIFO order, ensuring no stuck keys (if key-up)
+        // and no lost characters (if key-down) (Issue 1).
+        QueuedPhysicalKey oldest = queuedKeys_[0];
+        for (size_t i = 1; i < queueLength_; ++i) {
+            queuedKeys_[i - 1] = queuedKeys_[i];
         }
+        queueLength_--;
+        ReplayPhysicalKeyEvent(oldest);
     }
     queuedKeys_[queueLength_++] = QueuedPhysicalKey{
-        vkCode, scanCode, flags, isDown, shift, capsLock, ctrl, alt, win
+        vkCode, scanCode, flags, isDown,
+        lshift, rshift, capsLock,
+        lctrl, rctrl,
+        lalt, ralt,
+        lwin, rwin
     };
     return true;
 }
 
 void HookEngine::ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept {
     // Deliver a single key down or key up event to the host application,
-    // preserving the physical modifier context that was active when pressed (Issues 1 & 2).
-    std::array<INPUT, 16> buf{};
+    // preserving the physical modifier context that was active when pressed (Issues 1, 2, 3).
+    std::array<INPUT, 24> buf{};
     UINT cursor = 0;
 
     struct ModAdjustment {
         WORD vk;
         bool press;
+        bool extended;
     };
-    std::array<ModAdjustment, 4> modAdjustments{};
+    std::array<ModAdjustment, 8> modAdjustments{};
     size_t numAdjustments = 0;
 
     if (key.isDown) {
-        const bool curShift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-        const bool curCtrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        const bool curAlt   = (GetKeyState(VK_MENU) & 0x8000) != 0;
-        const bool curWin   = ((GetKeyState(VK_LWIN) & 0x8000) != 0 ||
-                               (GetKeyState(VK_RWIN) & 0x8000) != 0);
+        const bool curLShift = (GetKeyState(VK_LSHIFT) & 0x8000) != 0;
+        const bool curRShift = (GetKeyState(VK_RSHIFT) & 0x8000) != 0;
+        const bool curLCtrl  = (GetKeyState(VK_LCONTROL) & 0x8000) != 0;
+        const bool curRCtrl  = (GetKeyState(VK_RCONTROL) & 0x8000) != 0;
+        const bool curLAlt   = (GetKeyState(VK_LMENU) & 0x8000) != 0;
+        const bool curRAlt   = (GetKeyState(VK_RMENU) & 0x8000) != 0;
+        const bool curLWin   = (GetKeyState(VK_LWIN) & 0x8000) != 0;
+        const bool curRWin   = (GetKeyState(VK_RWIN) & 0x8000) != 0;
 
-        if (key.ctrl && !curCtrl)   modAdjustments[numAdjustments++] = {VK_CONTROL, true};
-        if (!key.ctrl && curCtrl)   modAdjustments[numAdjustments++] = {VK_CONTROL, false};
-        if (key.shift && !curShift) modAdjustments[numAdjustments++] = {VK_SHIFT, true};
-        if (!key.shift && curShift) modAdjustments[numAdjustments++] = {VK_SHIFT, false};
-        if (key.alt && !curAlt)     modAdjustments[numAdjustments++] = {VK_MENU, true};
-        if (!key.alt && curAlt)     modAdjustments[numAdjustments++] = {VK_MENU, false};
-        if (key.win && !curWin)     modAdjustments[numAdjustments++] = {VK_LWIN, true};
-        if (!key.win && curWin)     modAdjustments[numAdjustments++] = {VK_LWIN, false};
+        auto adjust = [&](bool desired, bool current, WORD vk, bool extended) {
+            if (desired && !current) {
+                modAdjustments[numAdjustments++] = {vk, /*press=*/true, extended};
+            } else if (!desired && current) {
+                modAdjustments[numAdjustments++] = {vk, /*press=*/false, extended};
+            }
+        };
+
+        // Issue 3: check and adjust each physical modifier side explicitly
+        // to avoid stuck or mismatched shortcuts when holding right-side keys.
+        adjust(key.lctrl,  curLCtrl,  VK_LCONTROL, false);
+        adjust(key.rctrl,  curRCtrl,  VK_RCONTROL, true);
+        adjust(key.lshift, curLShift, VK_LSHIFT,   false);
+        adjust(key.rshift, curRShift, VK_RSHIFT,   false);
+        adjust(key.lalt,   curLAlt,   VK_LMENU,    false);
+        adjust(key.ralt,   curRAlt,   VK_RMENU,    true);
+        adjust(key.lwin,   curLWin,   VK_LWIN,     true);
+        adjust(key.rwin,   curRWin,   VK_RWIN,     true);
 
         // Synthesize modifiers to match queued snapshot
         for (size_t m = 0; m < numAdjustments; ++m) {
-            buf[cursor++] = Output::Internal::MakeKeyEvent(
+            INPUT in = Output::Internal::MakeKeyEvent(
                 modAdjustments[m].vk, /*keyup=*/!modAdjustments[m].press);
+            if (modAdjustments[m].extended) {
+                in.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+            }
+            buf[cursor++] = in;
         }
     }
 
@@ -4341,12 +4383,19 @@ void HookEngine::ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept {
     // Restore modifiers back to current physical state
     if (key.isDown) {
         for (size_t m = 0; m < numAdjustments; ++m) {
-            buf[cursor++] = Output::Internal::MakeKeyEvent(
+            INPUT in = Output::Internal::MakeKeyEvent(
                 modAdjustments[m].vk, /*keyup=*/modAdjustments[m].press);
+            if (modAdjustments[m].extended) {
+                in.ki.dwFlags |= KEYEVENTF_EXTENDEDKEY;
+            }
+            buf[cursor++] = in;
         }
     }
 
     if (cursor > 0) {
+        // Issue 2: Wrap replay in sending scope so IsSending() is true during dispatch,
+        // preventing re-entering physical keys from jumping ahead of pending queued keys.
+        OutputDispatcher::ScopedSending sendingScope(dispatcher_);
         (void)Output::Internal::TrackedSendInput(buf.data(), cursor);
     }
 }
@@ -4367,11 +4416,15 @@ void HookEngine::DrainInputQueue() {
 
         if (key.isDown) {
             sendingForVk_.store(key.vkCode, std::memory_order_relaxed);
+            const bool shift = key.lshift || key.rshift;
+            const bool ctrl  = key.lctrl  || key.rctrl;
+            const bool alt   = key.lalt   || key.ralt;
+            const bool win   = key.lwin   || key.rwin;
             const bool eaten = ProcessKeyDown(
                 key.vkCode, key.scanCode, key.flags,
-                key.shift, key.capsLock, key.ctrl, key.alt, key.win);
+                shift, key.capsLock, ctrl, alt, win);
             if (!eaten) {
-                // Not consumed by IME: deliver single KEY-DOWN to host app with preserved modifier state (Issues 1 & 2)
+                // Not consumed by IME: deliver single KEY-DOWN to host app with preserved modifier state (Issues 1, 2, 3)
                 ReplayPhysicalKeyEvent(key);
             }
         } else {
@@ -4409,6 +4462,34 @@ void HookEngine::RecordDispatchedEvents(const INPUT* events, UINT count) noexcep
             vk = 0xE7; // VK_PACKET
         }
         RecordEchoEvent(vk, scan, isUp);
+    }
+}
+
+void HookEngine::RollbackDispatchedEvents(const INPUT* unsentEvents, UINT unsentCount) noexcept {
+    // Issue 4: When SendInput partially fails, remove the unsent entries from the tail
+    // of echoBuffer_ so they do not falsely match external injected events.
+    if (!unsentEvents || unsentCount == 0 || echoCount_ == 0) return;
+    for (UINT k = 0; k < unsentCount; ++k) {
+        if (unsentEvents[k].type != INPUT_KEYBOARD) continue;
+        const auto& ki = unsentEvents[k].ki;
+        DWORD vk = ki.wVk;
+        DWORD scan = ki.wScan;
+        const bool isUp = (ki.dwFlags & KEYEVENTF_KEYUP) != 0;
+        if ((ki.dwFlags & KEYEVENTF_UNICODE) != 0) {
+            vk = 0xE7; // VK_PACKET
+        }
+        for (size_t i = echoCount_; i > 0; --i) {
+            size_t idx = i - 1;
+            if (echoBuffer_[idx].vkCode == vk &&
+                echoBuffer_[idx].isUp == isUp &&
+                (echoBuffer_[idx].scanCode == 0 || scan == 0 || echoBuffer_[idx].scanCode == scan)) {
+                for (size_t j = idx + 1; j < echoCount_; ++j) {
+                    echoBuffer_[j - 1] = echoBuffer_[j];
+                }
+                echoCount_--;
+                break;
+            }
+        }
     }
 }
 

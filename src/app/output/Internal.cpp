@@ -69,6 +69,7 @@ SendMessageTimeoutWFn g_sendMessageTimeoutW = ::SendMessageTimeoutW;
 SleepFn               g_sleep               = ::Sleep;
 SynthCounterFn        g_synthCounterCallback = nullptr;
 SynthEventsDispatchedFn g_synthEventsDispatchedCallback = nullptr;
+SynthEventsRollbackFn   g_synthEventsRollbackCallback   = nullptr;
 NativePrefixLayoutFn g_nativePrefixLayout  = QueryNativePrefixLayout;
 ToUnicodeExFn        g_toUnicodeEx          = ::ToUnicodeEx;
 thread_local std::uint8_t g_inFlightPrefixKeys = 0;
@@ -102,11 +103,18 @@ bool TrackedSendInput(INPUT* events, UINT count, UINT* sentCount) noexcept {
     }
     UINT sent = g_sendInput(count, events, sizeof(INPUT));
     if (sentCount != nullptr) *sentCount = sent;
-    if (sent < count && g_synthCounterCallback) {
-        // Compensate: the (count - sent) events never reached the OS
-        // queue, so they won't round-trip through the hook to balance
-        // the pre-increment. Subtract them out to keep the counter true.
-        g_synthCounterCallback(-static_cast<int>(count - sent));
+    if (sent < count) {
+        if (g_synthCounterCallback) {
+            // Compensate: the (count - sent) events never reached the OS
+            // queue, so they won't round-trip through the hook to balance
+            // the pre-increment. Subtract them out to keep the counter true.
+            g_synthCounterCallback(-static_cast<int>(count - sent));
+        }
+        if (g_synthEventsRollbackCallback) {
+            // Issue 4: Rollback unsent events from the echo buffer so they
+            // do not linger and falsely match external injected events.
+            g_synthEventsRollbackCallback(events + sent, count - sent);
+        }
     }
     return sent == count;
 }

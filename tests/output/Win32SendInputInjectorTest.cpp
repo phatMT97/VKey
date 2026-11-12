@@ -9,6 +9,10 @@
 
 namespace NextKey::Output::Test {
 
+namespace {
+void* s_rollbackTestCapture = nullptr;
+}
+
 class Win32SendInputInjectorTest : public InjectorTestBase {};
 
 TEST_F(Win32SendInputInjectorTest, ReplaceEmptyTextSendsBackspacesOnly) {
@@ -307,6 +311,33 @@ TEST_F(Win32SendInputInjectorTest, PartialSendEmitsCompensatingNegativeDelta) {
     ASSERT_EQ(synthCounterDeltas.size(), 2u);
     EXPECT_EQ(synthCounterDeltas[0], 6);
     EXPECT_EQ(synthCounterDeltas[1], -4);
+}
+
+TEST_F(Win32SendInputInjectorTest, PartialSendTriggersRollbackCallback) {
+    // Issue 4: When SendInput delivers only 2 of 6 events, the 4 unsent events
+    // must trigger g_synthEventsRollbackCallback so HookEngine removes them from echoBuffer_.
+    std::vector<DWORD> rolledBackVks;
+    Internal::g_synthEventsRollbackCallback = [](const INPUT* events, UINT count) noexcept {
+        // Collect pointers/values to verify exact slice delivered
+        auto* vec = static_cast<std::vector<DWORD>*>(s_rollbackTestCapture);
+        if (vec) {
+            for (UINT i = 0; i < count; ++i) {
+                vec->push_back(events[i].ki.wVk);
+            }
+        }
+    };
+    s_rollbackTestCapture = &rolledBackVks;
+    Win32SendInputInjector inj(SuggestionDismissalPolicy::None);
+    sendInputReturnOverride = 2;  // 6 expected, only 2 delivered
+    EXPECT_FALSE(inj.Replace(3, L""));
+    s_rollbackTestCapture = nullptr;
+    Internal::g_synthEventsRollbackCallback = nullptr;
+
+    // 6 events planned: 3 x (BS down + BS up). 2 delivered, 4 unsent rolled back.
+    ASSERT_EQ(rolledBackVks.size(), 4u);
+    for (DWORD vk : rolledBackVks) {
+        EXPECT_EQ(vk, static_cast<DWORD>(VK_BACK));
+    }
 }
 
 // ── Game-compat re-inject atomicity ──────────────────────────────────
