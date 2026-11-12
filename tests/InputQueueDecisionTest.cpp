@@ -94,8 +94,9 @@ TEST(InputQueueDecisionTest, Sending_GameMovementKey_PassesThrough) {
     EXPECT_EQ(action, InputQueueAction::PassThrough);
 }
 
-TEST(InputQueueDecisionTest, Sending_QueueFull_PassesThroughFallback) {
-    // When queue is full, fallback to pass-through rather than dropping
+TEST(InputQueueDecisionTest, Sending_QueueFull_EnqueuesToPreserveOrder) {
+    // When queue is full, genuine keys must still enqueue so HookEngine
+    // drains existing keys in FIFO order rather than letting new key jump ahead (Issue 4)
     const auto action = DecideInputQueueActionDuringSend(
         /*isSending=*/true,
         /*eventVk=*/kVkI,
@@ -104,5 +105,5 @@ TEST(InputQueueDecisionTest, Sending_QueueFull_PassesThroughFallback) {
         /*isGameMovement=*/false,
         /*isBareModifier=*/false,
         /*queueFull=*/true);
-    EXPECT_EQ(action, InputQueueAction::PassThrough);
+    EXPECT_EQ(action, InputQueueAction::Enqueue);
 }

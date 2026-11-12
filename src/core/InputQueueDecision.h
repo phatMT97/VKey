@@ -28,7 +28,7 @@ enum class InputQueueAction {
     bool hasMultiProcessRenderer,
     bool isGameMovement,
     bool isBareModifier,
-    bool queueFull) noexcept {
+    bool /*queueFull*/ = false) noexcept {
     if (!isSending) {
         return InputQueueAction::NormalProcess;
     }
@@ -47,10 +47,9 @@ enum class InputQueueAction {
         return InputQueueAction::PassThrough;
     }
 
-    if (queueFull) {
-        return InputQueueAction::PassThrough;
-    }
-
+    // Preserve chronological FIFO ordering: genuine keys are always enqueued.
+    // If the queue is at capacity, HookEngine will drain pending keys first
+    // rather than letting the new key pass through out of order (Issue 4).
     return InputQueueAction::Enqueue;
 }
 

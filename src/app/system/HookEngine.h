@@ -903,7 +903,7 @@ private:
         bool alt = false;
         bool win = false;
     };
-    static constexpr size_t kMaxQueuedKeys = 16;
+    static constexpr size_t kMaxQueuedKeys = 64;
     std::array<QueuedPhysicalKey, kMaxQueuedKeys> queuedKeys_{};
     size_t queueLength_ = 0;
     bool isDrainingQueue_ = false;
@@ -911,20 +911,25 @@ private:
     bool EnqueuePhysicalKey(DWORD vkCode, DWORD scanCode, DWORD flags, bool isDown,
                             bool shift, bool capsLock, bool ctrl, bool alt, bool win) noexcept;
     void DrainInputQueue();
+    void ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept;
 
-    // Echo-Matching Buffer (Task 3.3):
+    // Echo-Matching Buffer (Task 3.3 & Issue 5):
     // Tracks recently dispatched synthetic keys to match and consume echo events
     // when third-party software (RDP, anticheat) strips dwExtraInfo.
     struct EchoEntry {
         DWORD vkCode = 0;
+        DWORD scanCode = 0;
+        bool isUp = false;
         DWORD timestamp = 0;
     };
-    static constexpr size_t kMaxEchoEntries = 32;
+    static constexpr size_t kMaxEchoEntries = 64;
     std::array<EchoEntry, kMaxEchoEntries> echoBuffer_{};
     size_t echoCount_ = 0;
 
-    void RecordEchoEvent(DWORD vkCode) noexcept;
-    bool MatchAndConsumeEcho(DWORD vkCode) noexcept;
+    void RecordEchoEvent(DWORD vkCode, DWORD scanCode, bool isUp) noexcept;
+    void RecordDispatchedEvents(const INPUT* events, UINT count) noexcept;
+    bool ConsumeEchoEvent(DWORD vkCode, DWORD scanCode, bool isUp) noexcept;
+    bool MatchAndConsumeEcho(DWORD vkCode, DWORD scanCode, bool isUp) noexcept;
 
     // Wave 3 PR 3.2 — CJK layout state (layoutSuppressed_/modeBeforeCjk_/
     // cachedIsCompatLayout_) and focused-child cache (cachedFocusedHwnd_/

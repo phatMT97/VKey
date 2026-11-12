@@ -68,6 +68,7 @@ SendMessageWFn        g_sendMessageW        = ::SendMessageW;
 SendMessageTimeoutWFn g_sendMessageTimeoutW = ::SendMessageTimeoutW;
 SleepFn               g_sleep               = ::Sleep;
 SynthCounterFn        g_synthCounterCallback = nullptr;
+SynthEventsDispatchedFn g_synthEventsDispatchedCallback = nullptr;
 NativePrefixLayoutFn g_nativePrefixLayout  = QueryNativePrefixLayout;
 ToUnicodeExFn        g_toUnicodeEx          = ::ToUnicodeEx;
 thread_local std::uint8_t g_inFlightPrefixKeys = 0;
@@ -95,6 +96,9 @@ bool TrackedSendInput(INPUT* events, UINT count, UINT* sentCount) noexcept {
     // leaving synthEventsPending_ negative-leaning until watchdog reset.
     if (g_synthCounterCallback && count > 0) {
         g_synthCounterCallback(static_cast<int>(count));
+    }
+    if (g_synthEventsDispatchedCallback && count > 0) {
+        g_synthEventsDispatchedCallback(events, count);
     }
     UINT sent = g_sendInput(count, events, sizeof(INPUT));
     if (sentCount != nullptr) *sentCount = sent;

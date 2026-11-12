@@ -38,6 +38,9 @@ using ToUnicodeExFn        = decltype(&::ToUnicodeEx);
 // Function pointer (not std::function) keeps the layer decoupled — no
 // HookEngine dependency leaking into src/app/output/.
 using SynthCounterFn       = void (*)(int delta) noexcept;
+// Issue 5: callback fired before SendInput so HookEngine can record the exact
+// dispatched synthetic events for precise echo-matching (down/up, vk, scan).
+using SynthEventsDispatchedFn = void (*)(const INPUT* events, UINT count) noexcept;
 
 // Test seams. Production initializes to the real Win32 APIs.
 extern SendInputFn           g_sendInput;
@@ -46,6 +49,7 @@ extern SendMessageWFn        g_sendMessageW;
 extern SendMessageTimeoutWFn g_sendMessageTimeoutW;
 extern SleepFn               g_sleep;
 extern SynthCounterFn        g_synthCounterCallback;  // null = disabled
+extern SynthEventsDispatchedFn g_synthEventsDispatchedCallback;  // null = disabled
 extern NativePrefixLayoutFn  g_nativePrefixLayout;
 extern ToUnicodeExFn         g_toUnicodeEx;
 
