@@ -4302,7 +4302,7 @@ bool HookEngine::EnqueuePhysicalKey(DWORD vkCode, DWORD scanCode, DWORD flags, b
                                     bool lshift, bool rshift, bool capsLock,
                                     bool lctrl, bool rctrl,
                                     bool lalt, bool ralt,
-                                    bool lwin, bool rwin) noexcept {
+                                    bool lwin, bool rwin) {
     const QueuedPhysicalKey newKey{
         vkCode, scanCode, flags, isDown,
         lshift, rshift, capsLock,

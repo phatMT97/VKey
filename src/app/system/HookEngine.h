@@ -901,7 +901,7 @@ private:
                             bool lshift, bool rshift, bool capsLock,
                             bool lctrl, bool rctrl,
                             bool lalt, bool ralt,
-                            bool lwin, bool rwin) noexcept;
+                            bool lwin, bool rwin);
     void DrainInputQueue();
     void ProcessQueuedKey(const QueuedPhysicalKey& key);
     void ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept;

@@ -143,9 +143,52 @@ TEST(PhysicalInputQueueTest, DownUpBalanceUnderCeilingPressure) {
     }
 
     // Crucial guarantee: EVERY SINGLE RELEASE (key-up) is strictly preserved!
-    // No host application can ever be left with a stuck key because all 300 releases survived!
     EXPECT_EQ(upCount, kPairs);
     EXPECT_GT(downCount, 0u);
+}
+
+TEST(PhysicalInputQueueTest, ReleaseNeverEvictedEvenBeyondCeiling) {
+    // Probe 1: Enqueue 513 releases. Not a single release may be dropped!
+    PhysicalInputQueue queue;
+
+    constexpr uint32_t kReleases = 513;
+    for (uint32_t i = 0; i < kReleases; ++i) {
+        EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/false)));
+    }
+
+    EXPECT_TRUE(queue.HasOverflowed());
+    EXPECT_EQ(queue.Size(), kReleases);
+
+    // Release 0 must still be at the head and every single release must survive in order
+    for (uint32_t i = 0; i < kReleases; ++i) {
+        QueuedPhysicalKey key{};
+        ASSERT_TRUE(queue.Pop(key));
+        EXPECT_EQ(key.vkCode, i);
+        EXPECT_FALSE(key.isDown);
+    }
+    EXPECT_TRUE(queue.Empty());
+}
+
+TEST(PhysicalInputQueueTest, AlternatingEnqueuePopZeroMemoryGrowth) {
+    // Probe 2: 100,000 alternating enqueue/pop cycles with live entries = 2.
+    // Capacity must remain stable (64), without prefix accumulation or memory leak!
+    PhysicalInputQueue queue;
+
+    // Initial 2 entries
+    EXPECT_TRUE(queue.Enqueue(MakeKey('A', /*isDown=*/true)));
+    EXPECT_TRUE(queue.Enqueue(MakeKey('A', /*isDown=*/false)));
+
+    for (uint32_t i = 0; i < 100'000; ++i) {
+        QueuedPhysicalKey popped{};
+        ASSERT_TRUE(queue.Pop(popped));
+
+        EXPECT_TRUE(queue.Enqueue(MakeKey(i % 256, /*isDown=*/(i % 2 == 0))));
+    }
+
+    EXPECT_EQ(queue.Size(), 2u);
+    // Circular ring buffer reuses slots without growing capacity!
+    EXPECT_EQ(queue.Capacity(), PhysicalInputQueue::kNormalCapacity);
+    EXPECT_FALSE(queue.HasOverflowed());
 }
 
 TEST(PhysicalInputQueueTest, ClearAndReuse) {
