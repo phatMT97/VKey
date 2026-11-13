@@ -864,7 +864,7 @@ void EngineController::TrackMacroBackspace() noexcept {
 bool EngineController::ReplacePrecedingText(ITfContext* pContext,
                                              std::size_t characterCount,
                                              const std::wstring& replacement,
-                                             const std::wstring& expected) {
+                                             std::wstring_view expected) {
     if (pContext == nullptr || characterCount == 0) return false;
 
     bool replaced = false;
@@ -1045,6 +1045,8 @@ EngineController::MacroResult EngineController::HandleMacroTrigger(
     }
 
     const std::wstring previousComposition = engine_ ? engine_->Peek() : std::wstring{};
+    const auto expected = Macro::ReplacementDocumentText(
+        plan, previousComposition, macroCrossCommit_, triggerChar);
     std::wstring replacement = Macro::ExpandEscapesForClipboard(plan.expansion);
     bool eatTrigger = plan.isPartOfMacro;
     if (!eatTrigger && (vkCode == VK_SPACE || triggerChar > L' ')) {
@@ -1061,7 +1063,7 @@ EngineController::MacroResult EngineController::HandleMacroTrigger(
             engine_->Reset();
             digitLedWord_ = false;
         }
-        replaced = ReplacePrecedingText(pContext, plan.bsCount, replacement, plan.shortcut);
+        replaced = ReplacePrecedingText(pContext, plan.bsCount, replacement, expected);
     } else {
         auto* pSession = new CommitEditSession(pContext, &compositionMgr_, replacement);
         RequestEditSession(pContext, pSession);

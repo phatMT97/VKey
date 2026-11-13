@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -286,7 +287,7 @@ private:
     [[nodiscard]] bool ReplacePrecedingText(ITfContext* pContext,
                                             std::size_t characterCount,
                                             const std::wstring& replacement,
-                                            const std::wstring& expected = {});
+                                            std::wstring_view expected = {});
     [[nodiscard]] std::wstring ReadPrecedingTextFromContext(ITfContext* pContext,
                                                             LONG maxChars = 64) const;
     /// Plan against an explicitly assembled raw buffer. Callers that must not

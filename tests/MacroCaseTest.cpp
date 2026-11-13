@@ -943,5 +943,53 @@ TEST(PlanShortcutCaptureTest, CompositionMatchIncludesConsumedPunctuation) {
     EXPECT_EQ(plan.expansion, L"VIỆT NAM");
 }
 
+TEST(ReplacementDocumentTextTest, PendingPunctuationIsExcludedWithoutChangingUndoShortcut) {
+    PlanFixture f;
+    f.table[L"vn."] = L"Việt Nam";
+    f.raw = L"vn.";
+    f.trigger = L'.';
+    const auto plan = f.Run();
+    ASSERT_TRUE(plan.matched);
+    EXPECT_EQ(ReplacementDocumentText(plan, L"", true, f.trigger), L"vn");
+    EXPECT_EQ(plan.shortcut, L"vn.");
+    EXPECT_EQ(plan.bsCount, 2u);
+}
+
+TEST(ReplacementDocumentTextTest, VisibleCompositionWinsOverRawTelexKeys) {
+    PlanFixture f;
+    f.table[L"as"] = L"expanded";
+    f.raw = L"as";
+    f.prevComp = L"á";
+    const auto plan = f.Run();
+    ASSERT_TRUE(plan.matched);
+    EXPECT_EQ(ReplacementDocumentText(plan, f.prevComp, false, f.trigger), L"á");
+    EXPECT_EQ(plan.shortcut, L"as");
+    EXPECT_EQ(plan.bsCount, 1u);
+}
+
+TEST(ReplacementDocumentTextTest, CommittedPunctuationBeforeSpaceIsKept) {
+    PlanFixture f;
+    f.table[L"vn."] = L"Việt Nam";
+    f.raw = L"vn.";
+    f.crossCommit = true;
+    const auto plan = f.Run();
+    ASSERT_TRUE(plan.matched);
+    EXPECT_EQ(ReplacementDocumentText(plan, L"", true, L' '), L"vn.");
+    EXPECT_EQ(plan.bsCount, 3u);
+}
+
+TEST(ReplacementDocumentTextTest, CrossCommitIncludesTheEarlierWords) {
+    PlanFixture f;
+    f.table[L"xin vn."] = L"expanded";
+    f.raw = L"xin vn.";
+    f.prevComp = L"vn";
+    f.crossCommit = true;
+    f.trigger = L'.';
+    const auto plan = f.Run();
+    ASSERT_TRUE(plan.matched);
+    EXPECT_EQ(ReplacementDocumentText(plan, f.prevComp, true, f.trigger), L"xin vn");
+    EXPECT_EQ(plan.shortcut, L"xin vn.");
+}
+
 }  // namespace
 }  // namespace NextKey::Macro

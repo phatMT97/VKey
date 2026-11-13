@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <string>
+#include <string_view>
 
 #include "CompositionManager.h"
 #include "Define.h"
@@ -121,7 +122,7 @@ class ReplacePrecedingTextEditSession : public EditSession {
 public:
     ReplacePrecedingTextEditSession(ITfContext* pContext, std::size_t characterCount,
                                     const std::wstring& replacement, bool* replaced,
-                                    const std::wstring& expected = {})
+                                    std::wstring_view expected = {})
         : EditSession(pContext), characterCount_(characterCount), replacement_(replacement),
           replaced_(replaced), expected_(expected) {}
 

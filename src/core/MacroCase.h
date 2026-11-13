@@ -54,6 +54,12 @@ struct MacroPlan {
 /// Decide what (if anything) to expand. Pure function: no I/O, no globals.
 [[nodiscard]] MacroPlan Plan(const PlanInputs& in, const CaseMapper& mapper);
 
+/// Unicode text already at the caret, excluding a not-yet-inserted trigger.
+/// Keep plan.shortcut intact: undo needs the complete matched spelling.
+[[nodiscard]] std::wstring_view ReplacementDocumentText(
+    const MacroPlan& plan, std::wstring_view previousComposition,
+    bool macroCrossCommit, wchar_t triggerChar) noexcept;
+
 /// Convert \n escapes into \r\n for clipboard paste. No other escapes processed.
 [[nodiscard]] std::wstring ExpandEscapesForClipboard(std::wstring_view expansion);
 
