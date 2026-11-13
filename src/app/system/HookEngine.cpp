@@ -971,7 +971,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                      pKey->vkCode, pKey->scanCode, pKey->flags, nCode, isUp ? 1 : 0);
             self->dispatcher_.DecrementSynthEvents();
             self->ConsumeEchoEvent(pKey->vkCode, pKey->scanCode, isUp);
-            if (!self->dispatcher_.IsSending() && self->queueLength_ > 0) {
+            if (!self->dispatcher_.IsSending() && (self->queueLength_ > 0 || self->queueOverflowed_)) {
                 self->DrainInputQueue();
             }
             return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -983,7 +983,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 HOOK_LOG(L"  PASSTHRU (echo matched without dwExtraInfo): vk=0x%02X scan=0x%04X isUp=%d",
                          pKey->vkCode, pKey->scanCode, isUp ? 1 : 0);
                 self->dispatcher_.DecrementSynthEvents();
-                if (!self->dispatcher_.IsSending() && self->queueLength_ > 0) {
+                if (!self->dispatcher_.IsSending() && (self->queueLength_ > 0 || self->queueOverflowed_)) {
                     self->DrainInputQueue();
                 }
                 return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -1223,7 +1223,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 self->sendingForVk_.store(0, std::memory_order_relaxed);
                 if (eaten) {
                     HOOK_LOG(L"  → EATEN (key-down vk=0x%02X)", pKey->vkCode);
-                    if (!self->dispatcher_.IsSending() && self->queueLength_ > 0) {
+                    if (!self->dispatcher_.IsSending() && (self->queueLength_ > 0 || self->queueOverflowed_)) {
                         self->DrainInputQueue();
                     }
                     return 1;  // Eat the keystroke
@@ -1235,7 +1235,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 }
             }
         }
-        if (self && !self->dispatcher_.IsSending() && self->queueLength_ > 0) {
+        if (self && !self->dispatcher_.IsSending() && (self->queueLength_ > 0 || self->queueOverflowed_)) {
             self->DrainInputQueue();
         }
         return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -4313,23 +4313,17 @@ bool HookEngine::EnqueuePhysicalKey(DWORD vkCode, DWORD scanCode, DWORD flags, b
 
     if (queueLength_ >= kMaxQueuedKeys) {
         // Queue at capacity during active send:
-        // Do NOT run engine (ProcessQueuedKey) or start nested injections during
-        // an in-flight send transaction (Issue 1).
-        // Secure the slot for newKey BEFORE calling anything that could re-enter
-        // to prevent out-of-bounds array writes if re-entrant input arrives.
-        const QueuedPhysicalKey oldest = queuedKeys_[0];
+        // Do NOT send any keys or run the engine while an injection transaction
+        // is in-flight (Issues 1, 2). Replaying keys here would interleave between
+        // split-dispatch batches (e.g. Backspace and text).
+        // Instead, keep overflow off the sending path by dropping the oldest entry
+        // to make room for newKey in the FIFO array, and flag queueOverflowed_ so
+        // DrainInputQueue can safely reset composition once the transaction finishes.
         for (size_t i = 1; i < queueLength_; ++i) {
             queuedKeys_[i - 1] = queuedKeys_[i];
         }
         queuedKeys_[kMaxQueuedKeys - 1] = newKey;
-
-        // Mark overflow so DrainInputQueue resets composition state once the outer
-        // transaction completes, keeping engine and screen synchronized.
         queueOverflowed_ = true;
-
-        // Replay the oldest event directly to host to avoid stuck keys (if up)
-        // or dropped characters (if down).
-        ReplayPhysicalKeyEvent(oldest);
         return true;
     }
 
@@ -4458,7 +4452,10 @@ void HookEngine::ProcessQueuedKey(const QueuedPhysicalKey& key) {
 
 void HookEngine::DrainInputQueue() {
     VKEY_ASSERT_HOOK_THREAD();
-    if (isDrainingQueue_ || queueLength_ == 0 || dispatcher_.IsSending()) {
+    if (isDrainingQueue_ || dispatcher_.IsSending()) {
+        return;
+    }
+    if (queueLength_ == 0 && !queueOverflowed_) {
         return;
     }
 
@@ -4469,10 +4466,9 @@ void HookEngine::DrainInputQueue() {
         ~DrainScope() noexcept { flag = false; }
     } drainScope(isDrainingQueue_);
 
+    // Recover from overflow before processing entries (Issue 2)
     if (queueOverflowed_) {
         queueOverflowed_ = false;
-        // On queue overflow, bypass engine and reset active composition so the engine
-        // does not desynchronize against events already delivered to the screen.
         ResetComposition();
     }
 
@@ -4484,6 +4480,12 @@ void HookEngine::DrainInputQueue() {
         queueLength_--;
 
         ProcessQueuedKey(key);
+
+        // Check and handle overflow after each transaction, before next entry (Issue 2)
+        if (queueOverflowed_) {
+            queueOverflowed_ = false;
+            ResetComposition();
+        }
     }
 }
 
