@@ -971,7 +971,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                      pKey->vkCode, pKey->scanCode, pKey->flags, nCode, isUp ? 1 : 0);
             self->dispatcher_.DecrementSynthEvents();
             self->ConsumeEchoEvent(pKey->vkCode, pKey->scanCode, isUp);
-            if (!self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed())) {
+            if (!self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed() || self->emergencyCount_ > 0)) {
                 self->DrainInputQueue();
             }
             return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -983,7 +983,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 HOOK_LOG(L"  PASSTHRU (echo matched without dwExtraInfo): vk=0x%02X scan=0x%04X isUp=%d",
                          pKey->vkCode, pKey->scanCode, isUp ? 1 : 0);
                 self->dispatcher_.DecrementSynthEvents();
-                if (!self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed())) {
+                if (!self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed() || self->emergencyCount_ > 0)) {
                     self->DrainInputQueue();
                 }
                 return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -1153,8 +1153,15 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                     // Calling CallNextHookEx() would let the key jump ahead of previously queued keys
                     // and interleave into the in-flight synthetic injection stream (e.g. between Backspace
                     // and replacement text).
-                    HOOK_LOG(L"  EAT (enqueue failed during sending): vk=0x%02X isDown=%d",
-                             pKey->vkCode, isDown ? 1 : 0);
+                    if (!isDown) {
+                        // Key-up (release): MUST NOT be dropped/lost, or host application will have a stuck key!
+                        // Retain the release in the zero-allocation emergency fallback table so it can be
+                        // dispatched to host immediately after the active send completes (in DrainInputQueue).
+                        self->RecordEmergencyRelease(pKey->vkCode, pKey->scanCode, pKey->flags);
+                        HOOK_LOG(L"  EMERGENCY RELEASE RECORDED: vk=0x%02X", pKey->vkCode);
+                    } else {
+                        HOOK_LOG(L"  EAT (enqueue failed during sending): vk=0x%02X isDown=1", pKey->vkCode);
+                    }
                     return 1;  // Suppress so the failed key does NOT race or interleave into synth stream!
                 }
 
@@ -1231,7 +1238,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 self->sendingForVk_.store(0, std::memory_order_relaxed);
                 if (eaten) {
                     HOOK_LOG(L"  → EATEN (key-down vk=0x%02X)", pKey->vkCode);
-                    if (!self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed())) {
+                    if (!self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed() || self->emergencyCount_ > 0)) {
                         self->DrainInputQueue();
                     }
                     return 1;  // Eat the keystroke
@@ -1243,7 +1250,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 }
             }
         }
-        if (self && !self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed())) {
+        if (self && !self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed() || self->emergencyCount_ > 0)) {
             self->DrainInputQueue();
         }
         return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -4445,7 +4452,7 @@ void HookEngine::DrainInputQueue() {
     if (isDrainingQueue_ || dispatcher_.IsSending()) {
         return;
     }
-    if (inputQueue_.Empty() && !inputQueue_.HasOverflowed()) {
+    if (inputQueue_.Empty() && !inputQueue_.HasOverflowed() && emergencyCount_ == 0) {
         return;
     }
 
@@ -4472,6 +4479,36 @@ void HookEngine::DrainInputQueue() {
             ResetComposition();
         }
     }
+
+    // Safety net: replay any emergency releases that could not be enqueued during memory exhaustion
+    if (!dispatcher_.IsSending() && emergencyCount_ > 0) {
+        DrainEmergencyReleases();
+    }
+}
+
+void HookEngine::RecordEmergencyRelease(DWORD vkCode, DWORD scanCode, DWORD flags) noexcept {
+    const size_t vk = static_cast<size_t>(vkCode & 0xFF);
+    if (!emergencyPending_.test(vk)) {
+        emergencyPending_.set(vk);
+        ++emergencyCount_;
+    }
+    emergencyReleases_[vk] = QueuedPhysicalKey{
+        .vkCode = vkCode,
+        .scanCode = scanCode,
+        .flags = flags,
+        .isDown = false
+    };
+}
+
+void HookEngine::DrainEmergencyReleases() noexcept {
+    for (size_t vk = 0; vk < emergencyReleases_.size(); ++vk) {
+        if (emergencyPending_.test(vk)) {
+            emergencyPending_.reset(vk);
+            --emergencyCount_;
+            ReplayPhysicalKeyEvent(emergencyReleases_[vk]);
+        }
+    }
+    emergencyCount_ = 0;
 }
 
 void HookEngine::RecordEchoEvent(DWORD vkCode, DWORD scanCode, bool isUp) noexcept {

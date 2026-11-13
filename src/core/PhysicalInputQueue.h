@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <array>
+#include <bitset>
 #include <cstddef>
 #include <cstdint>
 #include <new>
@@ -78,6 +80,9 @@ public:
         // Only grow when the buffer has no free slots left.
         if (count_ == buffer_.size()) {
             try {
+                if (simulateAllocationFailure_) {
+                    throw std::bad_alloc();
+                }
                 Grow();
             } catch (const std::bad_alloc&) {
                 overflowed_ = true;
@@ -103,7 +108,20 @@ public:
                     }
                 }
                 if (!evicted) {
-                    // All slots are releases and memory cannot be allocated.
+                    // All slots in the buffer are releases and memory cannot be allocated.
+                    if (!key.isDown) {
+                        // Crucial guarantee: KEY-UP (RELEASE) EVENTS MUST NEVER BE LOST!
+                        // Even under total memory exhaustion, store this release in the fixed-capacity
+                        // zero-allocation emergency table so it can be replayed after the transaction.
+                        const size_t vk = static_cast<size_t>(key.vkCode & 0xFF);
+                        if (!emergencyPending_.test(vk)) {
+                            emergencyPending_.set(vk);
+                            ++emergencyCount_;
+                        }
+                        emergencyReleases_[vk] = key;
+                        return true;
+                    }
+                    // Only key-down events can be rejected under catastrophic OOM
                     return false;
                 }
             }
@@ -116,11 +134,11 @@ public:
     }
 
     [[nodiscard]] bool Empty() const noexcept {
-        return count_ == 0;
+        return count_ == 0 && emergencyCount_ == 0;
     }
 
     [[nodiscard]] size_t Size() const noexcept {
-        return count_;
+        return count_ + emergencyCount_;
     }
 
     [[nodiscard]] size_t Capacity() const noexcept {
@@ -136,29 +154,55 @@ public:
     }
 
     [[nodiscard]] bool Pop(QueuedPhysicalKey& outKey) noexcept {
-        if (count_ == 0) {
-            return false;
+        if (count_ > 0) {
+            outKey = buffer_[head_];
+            head_ = (head_ + 1) % buffer_.size();
+            --count_;
+            if (count_ == 0) {
+                head_ = 0;
+            }
+            return true;
         }
-        outKey = buffer_[head_];
-        head_ = (head_ + 1) % buffer_.size();
-        --count_;
-        if (count_ == 0) {
-            head_ = 0;
+
+        if (emergencyCount_ > 0) {
+            for (size_t vk = 0; vk < emergencyReleases_.size(); ++vk) {
+                if (emergencyPending_.test(vk)) {
+                    emergencyPending_.reset(vk);
+                    --emergencyCount_;
+                    outKey = emergencyReleases_[vk];
+                    return true;
+                }
+            }
+            emergencyCount_ = 0;
         }
-        return true;
+
+        return false;
     }
 
     [[nodiscard]] const QueuedPhysicalKey* Peek() const noexcept {
-        if (count_ == 0) {
-            return nullptr;
+        if (count_ > 0) {
+            return &buffer_[head_];
         }
-        return &buffer_[head_];
+        if (emergencyCount_ > 0) {
+            for (size_t vk = 0; vk < emergencyReleases_.size(); ++vk) {
+                if (emergencyPending_.test(vk)) {
+                    return &emergencyReleases_[vk];
+                }
+            }
+        }
+        return nullptr;
     }
 
     void Clear() noexcept {
         head_ = 0;
         count_ = 0;
+        emergencyCount_ = 0;
+        emergencyPending_.reset();
         overflowed_ = false;
+    }
+
+    void SetSimulateAllocationFailureForTesting(bool simulate) noexcept {
+        simulateAllocationFailure_ = simulate;
     }
 
 private:
@@ -176,6 +220,12 @@ private:
     size_t head_ = 0;
     size_t count_ = 0;
     bool overflowed_ = false;
+    bool simulateAllocationFailure_ = false;
+
+    // Zero-allocation fallback table for key-up (release) events under severe memory exhaustion
+    std::array<QueuedPhysicalKey, 256> emergencyReleases_{};
+    std::bitset<256> emergencyPending_{};
+    size_t emergencyCount_ = 0;
 };
 
 }  // namespace NextKey

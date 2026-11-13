@@ -34,6 +34,7 @@
 #include <Windows.h>
 #include <array>
 #include <atomic>
+#include <bitset>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -905,6 +906,12 @@ private:
     void DrainInputQueue();
     void ProcessQueuedKey(const QueuedPhysicalKey& key);
     void ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept;
+    void RecordEmergencyRelease(DWORD vkCode, DWORD scanCode, DWORD flags) noexcept;
+    void DrainEmergencyReleases() noexcept;
+
+    std::array<QueuedPhysicalKey, 256> emergencyReleases_{};
+    std::bitset<256> emergencyPending_{};
+    size_t emergencyCount_ = 0;
 
     // Echo-Matching Buffer (Task 3.3 & Issues 4, 5):
     // Tracks recently dispatched synthetic keys to match and consume echo events

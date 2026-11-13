@@ -245,3 +245,78 @@ TEST(PhysicalInputQueueTest, ClearAndReuse) {
     EXPECT_EQ(key.vkCode, static_cast<uint32_t>('Z'));
     EXPECT_TRUE(queue.Empty());
 }
+
+TEST(PhysicalInputQueueTest, AllocationFailurePreservesReleasesWithoutAllocation) {
+    // Probe reproducing user issue:
+    // Queue contains 64 releases. Buffer is full.
+    // Allocation failure occurs (simulated std::bad_alloc).
+    // The 65th release (and subsequent releases) MUST NOT be rejected or dropped!
+    PhysicalInputQueue queue;
+
+    for (uint32_t i = 0; i < 64; ++i) {
+        EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/false)));
+    }
+    EXPECT_EQ(queue.Size(), 64u);
+    EXPECT_FALSE(queue.HasOverflowed());
+
+    // Force allocation failure for testing
+    queue.SetSimulateAllocationFailureForTesting(true);
+
+    // Enqueue 10 more releases (VK 64 to 73).
+    // Since these are key-up (release) events, they MUST be accepted via the zero-allocation emergency table!
+    for (uint32_t i = 64; i < 74; ++i) {
+        EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/false)));
+    }
+
+    // Key-down under total allocation failure with no key-downs to evict returns false
+    EXPECT_FALSE(queue.Enqueue(MakeKey('A', /*isDown=*/true)));
+
+    EXPECT_TRUE(queue.HasOverflowed());
+    EXPECT_EQ(queue.Size(), 74u);
+
+    // Pop all 74 events:
+    // First 64 events from buffer (VK 0..63)
+    for (uint32_t i = 0; i < 64; ++i) {
+        QueuedPhysicalKey key{};
+        ASSERT_TRUE(queue.Pop(key));
+        EXPECT_EQ(key.vkCode, i);
+        EXPECT_FALSE(key.isDown);
+    }
+
+    // Remaining 10 events from emergency release table (VK 64..73)
+    for (uint32_t i = 64; i < 74; ++i) {
+        QueuedPhysicalKey key{};
+        ASSERT_TRUE(queue.Pop(key));
+        EXPECT_FALSE(key.isDown);
+    }
+
+    EXPECT_TRUE(queue.Empty());
+    EXPECT_EQ(queue.Size(), 0u);
+}
+
+TEST(PhysicalInputQueueTest, AllocationFailureEvictsDownToPreserveRelease) {
+    // Queue contains 32 down and 32 up events (total 64, capacity 64)
+    PhysicalInputQueue queue;
+
+    for (uint32_t i = 0; i < 32; ++i) {
+        EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/true)));
+        EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/false)));
+    }
+    EXPECT_EQ(queue.Size(), 64u);
+
+    // Force allocation failure
+    queue.SetSimulateAllocationFailureForTesting(true);
+
+    // When buffer is full but has key-down events, Enqueue can evict a key-down without allocating!
+    EXPECT_TRUE(queue.Enqueue(MakeKey(100, /*isDown=*/false)));
+
+    size_t upCount = 0;
+    QueuedPhysicalKey key{};
+    while (queue.Pop(key)) {
+        if (!key.isDown) {
+            ++upCount;
+        }
+    }
+    // All 32 original releases + the 33rd release survived!
+    EXPECT_EQ(upCount, 33u);
+}
