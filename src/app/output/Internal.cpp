@@ -8,6 +8,24 @@ namespace NextKey::Output::Internal {
 
 namespace {
 
+struct ActiveSynthBatch;
+thread_local ActiveSynthBatch* activeSynthBatch = nullptr;
+
+struct ActiveSynthBatch {
+    const INPUT* events;
+    UINT count;
+    UINT next = 0;
+    ActiveSynthBatch* previous;
+
+    ActiveSynthBatch(const INPUT* input, UINT size) noexcept
+        : events(input), count(size), previous(activeSynthBatch) {
+        activeSynthBatch = this;
+    }
+    ~ActiveSynthBatch() noexcept { activeSynthBatch = previous; }
+    ActiveSynthBatch(const ActiveSynthBatch&) = delete;
+    ActiveSynthBatch& operator=(const ActiveSynthBatch&) = delete;
+};
+
 HKL QueryNativePrefixLayout() noexcept {
     const HWND foreground = ::GetForegroundWindow();
     if (foreground == nullptr) return nullptr;
@@ -90,6 +108,7 @@ SuggestionDismissalPlan PrepareSuggestionDismissal(
 }
 
 bool TrackedSendInput(INPUT* events, UINT count, UINT* sentCount) noexcept {
+    ActiveSynthBatch batch(events, count);
     // Pre-increment the synth counter BEFORE SendInput. The Win32
     // callback fires synchronously during SendInput on the same thread —
     // if we incremented after, the LL hook proc could decrement the
@@ -117,6 +136,25 @@ bool TrackedSendInput(INPUT* events, UINT count, UINT* sentCount) noexcept {
         }
     }
     return sent == count;
+}
+
+bool ConsumeActiveSynthEvent(DWORD vk, DWORD scan, bool isUp) noexcept {
+    for (auto* batch = activeSynthBatch; batch; batch = batch->previous) {
+        while (batch->next < batch->count &&
+               batch->events[batch->next].type != INPUT_KEYBOARD) {
+            ++batch->next;
+        }
+        if (batch->next == batch->count) continue;
+        const auto& key = batch->events[batch->next].ki;
+        const DWORD expectedVk = (key.dwFlags & KEYEVENTF_UNICODE) != 0
+            ? VK_PACKET : key.wVk;
+        if (vk == expectedVk && isUp == ((key.dwFlags & KEYEVENTF_KEYUP) != 0) &&
+            (scan == 0 || key.wScan == 0 || scan == key.wScan)) {
+            ++batch->next;
+            return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace NextKey::Output::Internal

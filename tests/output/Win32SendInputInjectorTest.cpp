@@ -451,4 +451,85 @@ TEST_F(Win32SendInputInjectorTest, HeldShiftIsIntactOnGameReinjectKey) {
     EXPECT_EQ(capturedInputs[2].ki.wVk, VK_BACK);
 }
 
+TEST_F(Win32SendInputInjectorTest, ActiveEchoCoversLongAtomicBatchAndExpiresOnReturn) {
+    std::vector<INPUT> events;
+    for (unsigned i = 0; i < 4096; ++i) {
+        events.push_back(Internal::MakeUnicodeEvent(static_cast<WCHAR>(0x400 + i), false));
+        events.push_back(Internal::MakeUnicodeEvent(static_cast<WCHAR>(0x400 + i), true));
+    }
+    Internal::g_sendInput = [](UINT size, LPINPUT batch, int) -> UINT {
+        for (UINT i = 0; i < size; ++i) {
+            EXPECT_TRUE(Internal::ConsumeActiveSynthEvent(
+                VK_PACKET, batch[i].ki.wScan, (batch[i].ki.dwFlags & KEYEVENTF_KEYUP) != 0));
+        }
+        return size;
+    };
+    ASSERT_TRUE(Internal::TrackedSendInput(events.data(), static_cast<UINT>(events.size())));
+    EXPECT_FALSE(Internal::ConsumeActiveSynthEvent(VK_PACKET, 0x400, false));
+}
+
+TEST_F(Win32SendInputInjectorTest, ActiveEchoDoesNotConsumeALaterKeyOutOfOrder) {
+    INPUT events[] = {Internal::MakeKeyEvent('A', false), Internal::MakeKeyEvent('B', false)};
+    Internal::g_sendInput = [](UINT size, LPINPUT batch, int) -> UINT {
+        EXPECT_FALSE(Internal::ConsumeActiveSynthEvent('B', batch[1].ki.wScan, false));
+        EXPECT_TRUE(Internal::ConsumeActiveSynthEvent('A', batch[0].ki.wScan, false));
+        EXPECT_TRUE(Internal::ConsumeActiveSynthEvent('B', batch[1].ki.wScan, false));
+        return size;
+    };
+    EXPECT_TRUE(Internal::TrackedSendInput(events, 2));
+}
+
+TEST_F(Win32SendInputInjectorTest, NestedDispatchRestoresTheOuterEchoCursor) {
+    static bool nested;
+    nested = false;
+    Internal::g_sendInput = [](UINT size, LPINPUT batch, int) -> UINT {
+        EXPECT_TRUE(Internal::ConsumeActiveSynthEvent(batch[0].ki.wVk, batch[0].ki.wScan, false));
+        if (!nested) {
+            nested = true;
+            INPUT inner[] = {Internal::MakeKeyEvent('B', false), Internal::MakeKeyEvent('B', true)};
+            EXPECT_TRUE(Internal::TrackedSendInput(inner, 2));
+        }
+        EXPECT_TRUE(Internal::ConsumeActiveSynthEvent(batch[1].ki.wVk, batch[1].ki.wScan, true));
+        return size;
+    };
+    INPUT outer[] = {Internal::MakeKeyEvent('A', false), Internal::MakeKeyEvent('A', true)};
+    EXPECT_TRUE(Internal::TrackedSendInput(outer, 2));
+    EXPECT_FALSE(Internal::ConsumeActiveSynthEvent('A', outer[0].ki.wScan, false));
+}
+
+TEST_F(Win32SendInputInjectorTest, PartialReplayRestoresMixedModifierChangesWithoutOwningMainKeyUp) {
+    // Ctrl was held and is temporarily released; right Alt was up and is
+    // temporarily pressed. Recovery must restore both original physical states.
+    const std::array<INPUT, 5> batch = {
+        Internal::MakeKeyEvent(VK_LCONTROL, true),
+        Internal::MakeKeyEvent(VK_RMENU, false),
+        Internal::MakeKeyEvent('C', false),
+        Internal::MakeKeyEvent(VK_LCONTROL, false),
+        Internal::MakeKeyEvent(VK_RMENU, true),
+    };
+    constexpr std::array<size_t, 6> recoveryCounts{0, 1, 2, 2, 1, 0};
+    for (UINT sent = 0; sent <= batch.size(); ++sent) {
+        SCOPED_TRACE(sent);
+        capturedInputs.clear();
+        std::array<bool, 256> down{};
+        down[VK_LCONTROL] = true;
+        auto apply = [&](const INPUT& event) {
+            down[event.ki.wVk] = (event.ki.dwFlags & KEYEVENTF_KEYUP) == 0;
+        };
+        for (UINT i = 0; i < sent; ++i) apply(batch[i]);
+        Internal::RecoverReplayModifiersAfterPartialSend(batch, sent, 2);
+        EXPECT_EQ(capturedInputs.size(), recoveryCounts[sent]);
+        for (const auto& event : capturedInputs) {
+            EXPECT_NE(event.ki.wVk, 'C');
+            if (event.ki.wVk == VK_RMENU) {
+                EXPECT_NE(event.ki.dwFlags & KEYEVENTF_EXTENDEDKEY, 0u);
+            }
+            apply(event);
+        }
+        EXPECT_TRUE(down[VK_LCONTROL]);
+        EXPECT_FALSE(down[VK_RMENU]);
+        EXPECT_EQ(down['C'], sent >= 3);
+    }
+}
+
 }  // namespace NextKey::Output::Test

@@ -103,6 +103,11 @@ private:
 [[nodiscard]] bool TrackedSendInput(INPUT* events, UINT count,
                                     UINT* sentCount = nullptr) noexcept;
 
+// Match the next keyboard event of a SendInput batch active on this thread.
+// Batch storage is borrowed only until TrackedSendInput returns; nested sends
+// retain their own cursor. The hook's recent-event cache covers later callbacks.
+[[nodiscard]] bool ConsumeActiveSynthEvent(DWORD vk, DWORD scan, bool isUp) noexcept;
+
 // Marker dwExtraInfo so own synth events skip our own hook (Rule #11.4
 // early-return). MUST match HookEngine::VKEY_EXTRA_INFO ("NK"). If
 // these diverge, own synth events are not recognized as own → infinite
@@ -202,6 +207,23 @@ inline void RecoverAfterPartialSend(std::span<const INPUT> batch, UINT sent,
     for (std::size_t k = 0; k < held.count; ++k) {
         if (sent > releaseStart + k && sent <= restoreStart + k) {
             restore[count++] = MakeKeyEvent(held.vks[k], false);
+        }
+    }
+    if (count > 0) (void)TrackedSendInput(restore.data(), count);
+}
+
+// Replay owns temporary modifier changes, while the physical key owns its UP.
+// Complete only missing inverse modifiers; never resend the main key or add UP.
+inline void RecoverReplayModifiersAfterPartialSend(
+        std::span<const INPUT> batch, UINT sent, std::size_t modifierCount) noexcept {
+    if (sent == 0 || sent >= batch.size() || modifierCount > 8 ||
+        batch.size() != modifierCount * 2 + 1) return;
+    std::array<INPUT, 8> restore{};
+    UINT count = 0;
+    const auto restoreStart = modifierCount + 1;
+    for (std::size_t k = 0; k < modifierCount; ++k) {
+        if (sent > k && sent <= restoreStart + k) {
+            restore[count++] = batch[restoreStart + k];
         }
     }
     if (count > 0) (void)TrackedSendInput(restore.data(), count);

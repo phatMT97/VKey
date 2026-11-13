@@ -4412,7 +4412,11 @@ void HookEngine::ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept {
         // Wrap replay in sending scope so IsSending() is true during dispatch,
         // preventing re-entering physical keys from jumping ahead of pending queued keys.
         OutputDispatcher::ScopedSending sendingScope(dispatcher_);
-        (void)Output::Internal::TrackedSendInput(buf.data(), cursor);
+        UINT sent = 0;
+        if (!Output::Internal::TrackedSendInput(buf.data(), cursor, &sent) && key.isDown) {
+            Output::Internal::RecoverReplayModifiersAfterPartialSend(
+                {buf.data(), cursor}, sent, numAdjustments);
+        }
     }
 }
 
@@ -4487,6 +4491,9 @@ void HookEngine::DrainInputQueue() {
 }
 
 void HookEngine::RecordEmergencyRelease(DWORD vkCode, DWORD scanCode, DWORD flags) noexcept {
+    // With PhysicalInputQueue's pending-mask/count invariant intact, UP enqueue
+    // succeeds and this outer fallback is dormant. Keep the safety net for
+    // future queue policies; its VK-ordered drain is not a chronological FIFO.
     const size_t vk = static_cast<size_t>(vkCode & 0xFF);
     if (!emergencyPending_.test(vk)) {
         emergencyPending_.set(vk);
@@ -4567,7 +4574,8 @@ void HookEngine::RollbackDispatchedEvents(const INPUT* unsentEvents, UINT unsent
 }
 
 bool HookEngine::ConsumeEchoEvent(DWORD vkCode, DWORD scanCode, bool isUp) noexcept {
-    if (echoCount_ == 0) return false;
+    const bool activeMatch = Output::Internal::ConsumeActiveSynthEvent(vkCode, scanCode, isUp);
+    if (echoCount_ == 0) return activeMatch;
     const DWORD now = GetTickCount();
     for (size_t i = 0; i < echoCount_; ++i) {
         if (echoBuffer_[i].vkCode == vkCode &&
@@ -4581,7 +4589,7 @@ bool HookEngine::ConsumeEchoEvent(DWORD vkCode, DWORD scanCode, bool isUp) noexc
             return true;
         }
     }
-    return false;
+    return activeMatch;
 }
 
 bool HookEngine::MatchAndConsumeEcho(DWORD vkCode, DWORD scanCode, bool isUp) noexcept {
