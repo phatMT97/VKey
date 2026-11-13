@@ -127,7 +127,8 @@ TEST(PhysicalInputQueueTest, DownUpBalanceUnderCeilingPressure) {
     }
 
     EXPECT_TRUE(queue.HasOverflowed());
-    EXPECT_LE(queue.Size(), PhysicalInputQueue::kHardCeiling);
+    EXPECT_EQ(queue.Size(), PhysicalInputQueue::kHardCeiling);
+    EXPECT_EQ(queue.Capacity(), PhysicalInputQueue::kHardCeiling);
 
     // Count how many down and up events survived eviction
     size_t downCount = 0;
@@ -148,19 +149,50 @@ TEST(PhysicalInputQueueTest, DownUpBalanceUnderCeilingPressure) {
 }
 
 TEST(PhysicalInputQueueTest, ReleaseNeverEvictedEvenBeyondCeiling) {
-    // Probe 1: Enqueue 513 releases. Not a single release may be dropped!
+    // Probe 1: Enqueue releases past ceiling (512, 513, 514, 520).
+    // Not a single release may be dropped, and capacity must ONLY double when full!
     PhysicalInputQueue queue;
 
-    constexpr uint32_t kReleases = 513;
-    for (uint32_t i = 0; i < kReleases; ++i) {
+    // Up to 512 releases
+    for (uint32_t i = 0; i < 512; ++i) {
         EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/false)));
     }
+    EXPECT_EQ(queue.Size(), 512u);
+    EXPECT_EQ(queue.Capacity(), 512u);
+
+    // 513th release: buffer was full (512/512), doubles to 1024
+    EXPECT_TRUE(queue.Enqueue(MakeKey(512, /*isDown=*/false)));
+    EXPECT_EQ(queue.Size(), 513u);
+    EXPECT_EQ(queue.Capacity(), 1024u);
+
+    // 514th release: buffer has free slots (513/1024), capacity MUST NOT double!
+    EXPECT_TRUE(queue.Enqueue(MakeKey(513, /*isDown=*/false)));
+    EXPECT_EQ(queue.Size(), 514u);
+    EXPECT_EQ(queue.Capacity(), 1024u);
+
+    // 515..520 releases: capacity MUST remain 1024 (not 131,072!)
+    for (uint32_t i = 514; i < 520; ++i) {
+        EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/false)));
+    }
+    EXPECT_EQ(queue.Size(), 520u);
+    EXPECT_EQ(queue.Capacity(), 1024u);
+
+    // Up to 1024 releases: capacity MUST remain 1024
+    for (uint32_t i = 520; i < 1024; ++i) {
+        EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/false)));
+    }
+    EXPECT_EQ(queue.Size(), 1024u);
+    EXPECT_EQ(queue.Capacity(), 1024u);
+
+    // 1025th release: now genuinely full, doubles to 2048
+    EXPECT_TRUE(queue.Enqueue(MakeKey(1024, /*isDown=*/false)));
+    EXPECT_EQ(queue.Size(), 1025u);
+    EXPECT_EQ(queue.Capacity(), 2048u);
 
     EXPECT_TRUE(queue.HasOverflowed());
-    EXPECT_EQ(queue.Size(), kReleases);
 
     // Release 0 must still be at the head and every single release must survive in order
-    for (uint32_t i = 0; i < kReleases; ++i) {
+    for (uint32_t i = 0; i < 1025; ++i) {
         QueuedPhysicalKey key{};
         ASSERT_TRUE(queue.Pop(key));
         EXPECT_EQ(key.vkCode, i);

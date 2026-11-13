@@ -1148,10 +1148,18 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                                  pKey->vkCode, isDown ? 1 : 0, self->inputQueue_.Size());
                         return 1;  // EAT so the physical key does NOT race into the app ahead of synthetics!
                     }
+
+                    // Enqueue failed (severe memory pressure). NEVER pass through to host while sending_ is true!
+                    // Calling CallNextHookEx() would let the key jump ahead of previously queued keys
+                    // and interleave into the in-flight synthetic injection stream (e.g. between Backspace
+                    // and replacement text).
+                    HOOK_LOG(L"  EAT (enqueue failed during sending): vk=0x%02X isDown=%d",
+                             pKey->vkCode, isDown ? 1 : 0);
+                    return 1;  // Suppress so the failed key does NOT race or interleave into synth stream!
                 }
 
                 HOOK_LOG(L"  PASSTHRU (sending_ %ls): vk=0x%02X scan=0x%04X flags=0x%08X",
-                         isBareModifier ? L"modifier" : (isGameMovement ? L"game" : L"queueFull"),
+                         isBareModifier ? L"modifier" : L"game",
                          pKey->vkCode, pKey->scanCode, pKey->flags);
                 return CallNextHookEx(nullptr, nCode, wParam, lParam);
             }

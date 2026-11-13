@@ -46,20 +46,22 @@ public:
     /// Enqueue a physical key event arriving while output injection is in-flight.
     /// Returns true on success, false on allocation failure.
     bool Enqueue(const QueuedPhysicalKey& key) {
-        try {
-            if (count_ >= kNormalCapacity) {
-                overflowed_ = true;
-            }
+        if (count_ >= kNormalCapacity) {
+            overflowed_ = true;
+        }
 
-            if (count_ >= kHardCeiling) {
-                overflowed_ = true;
-                // Ceiling pressure: search for the oldest key-down to evict.
-                // Key-up (release) events MUST NEVER be evicted so host applications
-                // never experience stuck keys.
-                bool evicted = false;
-                for (size_t i = 0; i < count_; ++i) {
-                    const size_t idx = (head_ + i) % buffer_.size();
-                    if (buffer_[idx].isDown) {
+        if (count_ >= kHardCeiling) {
+            overflowed_ = true;
+            // Ceiling pressure: search for the oldest key-down to evict.
+            // Key-up (release) events MUST NEVER be evicted so host applications
+            // never experience stuck keys.
+            for (size_t i = 0; i < count_; ++i) {
+                const size_t idx = (head_ + i) % buffer_.size();
+                if (buffer_[idx].isDown) {
+                    if (i == 0) {
+                        head_ = (head_ + 1) % buffer_.size();
+                        --count_;
+                    } else {
                         // Shift remaining elements forward in the circular buffer
                         for (size_t j = i; j + 1 < count_; ++j) {
                             const size_t curr = (head_ + j) % buffer_.size();
@@ -67,27 +69,50 @@ public:
                             buffer_[curr] = buffer_[next];
                         }
                         --count_;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Only grow when the buffer has no free slots left.
+        if (count_ == buffer_.size()) {
+            try {
+                Grow();
+            } catch (const std::bad_alloc&) {
+                overflowed_ = true;
+                // Buffer cannot grow due to memory pressure.
+                // Emergency fallback: try to evict the oldest key-down to make room without allocation.
+                bool evicted = false;
+                for (size_t i = 0; i < count_; ++i) {
+                    const size_t idx = (head_ + i) % buffer_.size();
+                    if (buffer_[idx].isDown) {
+                        if (i == 0) {
+                            head_ = (head_ + 1) % buffer_.size();
+                            --count_;
+                        } else {
+                            for (size_t j = i; j + 1 < count_; ++j) {
+                                const size_t curr = (head_ + j) % buffer_.size();
+                                const size_t next = (head_ + j + 1) % buffer_.size();
+                                buffer_[curr] = buffer_[next];
+                            }
+                            --count_;
+                        }
                         evicted = true;
                         break;
                     }
                 }
                 if (!evicted) {
-                    // All events currently in the queue are releases.
-                    // Never evict any release; grow the buffer to accommodate the new event.
-                    Grow();
+                    // All slots are releases and memory cannot be allocated.
+                    return false;
                 }
-            } else if (count_ == buffer_.size()) {
-                Grow();
             }
-
-            const size_t tail = (head_ + count_) % buffer_.size();
-            buffer_[tail] = key;
-            ++count_;
-            return true;
-        } catch (const std::bad_alloc&) {
-            overflowed_ = true;
-            return false;
         }
+
+        const size_t tail = (head_ + count_) % buffer_.size();
+        buffer_[tail] = key;
+        ++count_;
+        return true;
     }
 
     [[nodiscard]] bool Empty() const noexcept {
