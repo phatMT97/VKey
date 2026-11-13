@@ -294,12 +294,17 @@ TEST(PhysicalInputQueueTest, AllocationFailurePreservesReleasesWithoutAllocation
     EXPECT_EQ(queue.Size(), 0u);
 }
 
-TEST(PhysicalInputQueueTest, AllocationFailureEvictsDownToPreserveRelease) {
-    // Queue contains 32 down and 32 up events (total 64, capacity 64)
+TEST(PhysicalInputQueueTest, AlternatingEnqueuePopUnderAllocationFailurePreservesFIFO) {
+    // User probe test:
+    // 1. Ring full: 64 releases, allocation failure active.
+    // 2. 'A' UP is enqueued into emergency.
+    // 3. Pop one entry (R0). 'A' UP is migrated to ring buffer tail.
+    // 4. Pop second entry (R1). Slot after 'A' UP is now free.
+    // 5. 'A' DOWN is enqueued into the slot after 'A' UP.
+    // 6. Drain must yield 'A' UP BEFORE 'A' DOWN!
     PhysicalInputQueue queue;
 
-    for (uint32_t i = 0; i < 32; ++i) {
-        EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/true)));
+    for (uint32_t i = 0; i < 64; ++i) {
         EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/false)));
     }
     EXPECT_EQ(queue.Size(), 64u);
@@ -307,16 +312,81 @@ TEST(PhysicalInputQueueTest, AllocationFailureEvictsDownToPreserveRelease) {
     // Force allocation failure
     queue.SetSimulateAllocationFailureForTesting(true);
 
-    // When buffer is full but has key-down events, Enqueue can evict a key-down without allocating!
-    EXPECT_TRUE(queue.Enqueue(MakeKey(100, /*isDown=*/false)));
+    // 'A' UP enqueued
+    EXPECT_TRUE(queue.Enqueue(MakeKey('A', /*isDown=*/false)));
+    EXPECT_EQ(queue.Size(), 65u);
 
-    size_t upCount = 0;
+    // Pop R0: 'A' UP is immediately migrated into ring buffer at tail!
+    QueuedPhysicalKey p0{};
+    ASSERT_TRUE(queue.Pop(p0));
+    EXPECT_EQ(p0.vkCode, 0u);
+    EXPECT_FALSE(p0.isDown);
+
+    // Ring buffer is full again (64 items: R1..R63 + 'A' UP).
+    // An immediate 'A' DOWN cannot overtake 'A' UP:
+    EXPECT_FALSE(queue.Enqueue(MakeKey('A', /*isDown=*/true)));
+
+    // Pop R1: creates free slot chronologically AFTER 'A' UP
+    QueuedPhysicalKey p1{};
+    ASSERT_TRUE(queue.Pop(p1));
+    EXPECT_EQ(p1.vkCode, 1u);
+    EXPECT_FALSE(p1.isDown);
+
+    // Now 'A' DOWN is enqueued:
+    EXPECT_TRUE(queue.Enqueue(MakeKey('A', /*isDown=*/true)));
+
+    // Drain all remaining entries and verify order:
+    // 'A' UP MUST be replayed BEFORE 'A' DOWN!
+    bool sawAUp = false;
+    bool sawADown = false;
+
     QueuedPhysicalKey key{};
     while (queue.Pop(key)) {
-        if (!key.isDown) {
-            ++upCount;
+        if (key.vkCode == 'A') {
+            if (!key.isDown) {
+                EXPECT_FALSE(sawADown) << "'A' UP was popped after 'A' DOWN!";
+                sawAUp = true;
+            } else {
+                EXPECT_TRUE(sawAUp) << "'A' DOWN was popped before 'A' UP!";
+                sawADown = true;
+            }
         }
     }
-    // All 32 original releases + the 33rd release survived!
-    EXPECT_EQ(upCount, 33u);
+
+    EXPECT_TRUE(sawAUp);
+    EXPECT_TRUE(sawADown);
+    EXPECT_TRUE(queue.Empty());
+}
+
+TEST(PhysicalInputQueueTest, AlternatingLoopUnderAllocationFailureMaintainsOrder) {
+    // Alternating enqueue/pop workload while allocation failure is simulated.
+    PhysicalInputQueue queue;
+
+    for (uint32_t i = 0; i < 64; ++i) {
+        EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/false)));
+    }
+
+    queue.SetSimulateAllocationFailureForTesting(true);
+
+    // 100 alternating cycles: enqueue release, pop release
+    for (uint32_t i = 64; i < 164; ++i) {
+        // Enqueue new release
+        EXPECT_TRUE(queue.Enqueue(MakeKey(i, /*isDown=*/false)));
+
+        // Pop oldest release
+        QueuedPhysicalKey popped{};
+        ASSERT_TRUE(queue.Pop(popped));
+        EXPECT_EQ(popped.vkCode, i - 64);
+        EXPECT_FALSE(popped.isDown);
+    }
+
+    // Drain remaining 64 items (VK 100..163)
+    for (uint32_t i = 100; i < 164; ++i) {
+        QueuedPhysicalKey popped{};
+        ASSERT_TRUE(queue.Pop(popped));
+        EXPECT_EQ(popped.vkCode, i);
+        EXPECT_FALSE(popped.isDown);
+    }
+
+    EXPECT_TRUE(queue.Empty());
 }

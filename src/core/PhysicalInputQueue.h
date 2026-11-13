@@ -48,8 +48,41 @@ public:
     /// Enqueue a physical key event arriving while output injection is in-flight.
     /// Returns true on success, false on allocation failure.
     bool Enqueue(const QueuedPhysicalKey& key) {
-        if (count_ >= kNormalCapacity) {
+        if (count_ + emergencyCount_ >= kNormalCapacity) {
             overflowed_ = true;
+        }
+
+        // Always migrate any pending emergency releases into any free slots in buffer_ first
+        TryMigrateEmergencyToRing();
+
+        // If emergency releases are pending, no newer key-down can be enqueued ahead of them
+        if (emergencyCount_ > 0) {
+            overflowed_ = true;
+            if (key.isDown) {
+                // If there is an older isDown in buffer_, evict it to allow an emergency release to migrate in
+                for (size_t i = 0; i < count_; ++i) {
+                    const size_t idx = (head_ + i) % buffer_.size();
+                    if (buffer_[idx].isDown) {
+                        if (i == 0) {
+                            head_ = (head_ + 1) % buffer_.size();
+                            --count_;
+                        } else {
+                            for (size_t j = i; j + 1 < count_; ++j) {
+                                const size_t curr = (head_ + j) % buffer_.size();
+                                const size_t next = (head_ + j + 1) % buffer_.size();
+                                buffer_[curr] = buffer_[next];
+                            }
+                            --count_;
+                        }
+                        TryMigrateEmergencyToRing();
+                        break;
+                    }
+                }
+                // Newer key-down is rejected: cannot overtake pending emergency releases under OOM
+                return false;
+            }
+            // Newer key-up (release) is appended to emergency FIFO behind earlier releases
+            return PushEmergencyRelease(key);
         }
 
         if (count_ >= kHardCeiling) {
@@ -112,14 +145,8 @@ public:
                     if (!key.isDown) {
                         // Crucial guarantee: KEY-UP (RELEASE) EVENTS MUST NEVER BE LOST!
                         // Even under total memory exhaustion, store this release in the fixed-capacity
-                        // zero-allocation emergency table so it can be replayed after the transaction.
-                        const size_t vk = static_cast<size_t>(key.vkCode & 0xFF);
-                        if (!emergencyPending_.test(vk)) {
-                            emergencyPending_.set(vk);
-                            ++emergencyCount_;
-                        }
-                        emergencyReleases_[vk] = key;
-                        return true;
+                        // zero-allocation emergency FIFO so it can be replayed in order.
+                        return PushEmergencyRelease(key);
                     }
                     // Only key-down events can be rejected under catastrophic OOM
                     return false;
@@ -154,29 +181,23 @@ public:
     }
 
     [[nodiscard]] bool Pop(QueuedPhysicalKey& outKey) noexcept {
-        if (count_ > 0) {
-            outKey = buffer_[head_];
-            head_ = (head_ + 1) % buffer_.size();
-            --count_;
-            if (count_ == 0) {
-                head_ = 0;
+        if (count_ == 0) {
+            if (!PopEmergencyRelease(outKey)) {
+                return false;
             }
             return true;
         }
 
-        if (emergencyCount_ > 0) {
-            for (size_t vk = 0; vk < emergencyReleases_.size(); ++vk) {
-                if (emergencyPending_.test(vk)) {
-                    emergencyPending_.reset(vk);
-                    --emergencyCount_;
-                    outKey = emergencyReleases_[vk];
-                    return true;
-                }
-            }
-            emergencyCount_ = 0;
+        outKey = buffer_[head_];
+        head_ = (head_ + 1) % buffer_.size();
+        --count_;
+        if (count_ == 0) {
+            head_ = 0;
         }
 
-        return false;
+        // A slot was freed in buffer_: migrate the oldest emergency release in FIFO order
+        TryMigrateEmergencyToRing();
+        return true;
     }
 
     [[nodiscard]] const QueuedPhysicalKey* Peek() const noexcept {
@@ -184,11 +205,7 @@ public:
             return &buffer_[head_];
         }
         if (emergencyCount_ > 0) {
-            for (size_t vk = 0; vk < emergencyReleases_.size(); ++vk) {
-                if (emergencyPending_.test(vk)) {
-                    return &emergencyReleases_[vk];
-                }
-            }
+            return &emergencyBuf_[emergencyHead_];
         }
         return nullptr;
     }
@@ -196,6 +213,7 @@ public:
     void Clear() noexcept {
         head_ = 0;
         count_ = 0;
+        emergencyHead_ = 0;
         emergencyCount_ = 0;
         emergencyPending_.reset();
         overflowed_ = false;
@@ -216,15 +234,63 @@ private:
         head_ = 0;
     }
 
+    bool PushEmergencyRelease(const QueuedPhysicalKey& key) noexcept {
+        const size_t vk = static_cast<size_t>(key.vkCode & 0xFF);
+        if (!emergencyPending_.test(vk)) {
+            if (emergencyCount_ >= kEmergencyCapacity) {
+                return false;
+            }
+            emergencyPending_.set(vk);
+            const size_t tail = (emergencyHead_ + emergencyCount_) % kEmergencyCapacity;
+            emergencyBuf_[tail] = key;
+            ++emergencyCount_;
+        } else {
+            for (size_t i = 0; i < emergencyCount_; ++i) {
+                const size_t idx = (emergencyHead_ + i) % kEmergencyCapacity;
+                if ((emergencyBuf_[idx].vkCode & 0xFF) == vk) {
+                    emergencyBuf_[idx] = key;
+                    break;
+                }
+            }
+        }
+        return true;
+    }
+
+    bool PopEmergencyRelease(QueuedPhysicalKey& outKey) noexcept {
+        if (emergencyCount_ == 0) {
+            return false;
+        }
+        outKey = emergencyBuf_[emergencyHead_];
+        emergencyHead_ = (emergencyHead_ + 1) % kEmergencyCapacity;
+        --emergencyCount_;
+        emergencyPending_.reset(outKey.vkCode & 0xFF);
+        return true;
+    }
+
+    void TryMigrateEmergencyToRing() noexcept {
+        while (emergencyCount_ > 0 && count_ < buffer_.size()) {
+            QueuedPhysicalKey emKey{};
+            if (PopEmergencyRelease(emKey)) {
+                const size_t tail = (head_ + count_) % buffer_.size();
+                buffer_[tail] = emKey;
+                ++count_;
+            } else {
+                break;
+            }
+        }
+    }
+
     std::vector<QueuedPhysicalKey> buffer_;
     size_t head_ = 0;
     size_t count_ = 0;
     bool overflowed_ = false;
     bool simulateAllocationFailure_ = false;
 
-    // Zero-allocation fallback table for key-up (release) events under severe memory exhaustion
-    std::array<QueuedPhysicalKey, 256> emergencyReleases_{};
-    std::bitset<256> emergencyPending_{};
+    // Zero-allocation fallback FIFO for key-up (release) events under severe memory exhaustion
+    static constexpr size_t kEmergencyCapacity = 256;
+    std::array<QueuedPhysicalKey, kEmergencyCapacity> emergencyBuf_{};
+    std::bitset<kEmergencyCapacity> emergencyPending_{};
+    size_t emergencyHead_ = 0;
     size_t emergencyCount_ = 0;
 };
 
