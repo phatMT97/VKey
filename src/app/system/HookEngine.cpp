@@ -971,7 +971,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                      pKey->vkCode, pKey->scanCode, pKey->flags, nCode, isUp ? 1 : 0);
             self->dispatcher_.DecrementSynthEvents();
             self->ConsumeEchoEvent(pKey->vkCode, pKey->scanCode, isUp);
-            if (!self->dispatcher_.IsSending() && (self->queueLength_ > 0 || self->queueOverflowed_)) {
+            if (!self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed())) {
                 self->DrainInputQueue();
             }
             return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -983,7 +983,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 HOOK_LOG(L"  PASSTHRU (echo matched without dwExtraInfo): vk=0x%02X scan=0x%04X isUp=%d",
                          pKey->vkCode, pKey->scanCode, isUp ? 1 : 0);
                 self->dispatcher_.DecrementSynthEvents();
-                if (!self->dispatcher_.IsSending() && (self->queueLength_ > 0 || self->queueOverflowed_)) {
+                if (!self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed())) {
                     self->DrainInputQueue();
                 }
                 return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -1122,7 +1122,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                     self->engine_->Count() == 0 &&
                     (pKey->vkCode == 'W' || pKey->vkCode == 'A' || pKey->vkCode == 'S' || pKey->vkCode == 'D' ||
                      (pKey->vkCode >= VK_LEFT && pKey->vkCode <= VK_DOWN));
-                const bool queueFull = self->queueLength_ >= kMaxQueuedKeys;
+                const bool queueFull = self->inputQueue_.Size() >= PhysicalInputQueue::kNormalCapacity;
 
                 const InputQueueAction queueAction = DecideInputQueueActionDuringSend(
                     /*isSending=*/true,
@@ -1145,7 +1145,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                                                  preDrainLAlt, preDrainRAlt,
                                                  preDrainLWin, preDrainRWin)) {
                         HOOK_LOG(L"  QUEUED (sending_ in-flight): vk=0x%02X isDown=%d (qlen=%zu)",
-                                 pKey->vkCode, isDown ? 1 : 0, self->queueLength_);
+                                 pKey->vkCode, isDown ? 1 : 0, self->inputQueue_.Size());
                         return 1;  // EAT so the physical key does NOT race into the app ahead of synthetics!
                     }
                 }
@@ -1223,7 +1223,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 self->sendingForVk_.store(0, std::memory_order_relaxed);
                 if (eaten) {
                     HOOK_LOG(L"  → EATEN (key-down vk=0x%02X)", pKey->vkCode);
-                    if (!self->dispatcher_.IsSending() && (self->queueLength_ > 0 || self->queueOverflowed_)) {
+                    if (!self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed())) {
                         self->DrainInputQueue();
                     }
                     return 1;  // Eat the keystroke
@@ -1235,7 +1235,7 @@ LRESULT HookEngine::LowLevelKeyboardProcImpl(int nCode, WPARAM wParam, LPARAM lP
                 }
             }
         }
-        if (self && !self->dispatcher_.IsSending() && (self->queueLength_ > 0 || self->queueOverflowed_)) {
+        if (self && !self->dispatcher_.IsSending() && (!self->inputQueue_.Empty() || self->inputQueue_.HasOverflowed())) {
             self->DrainInputQueue();
         }
         return CallNextHookEx(nullptr, nCode, wParam, lParam);
@@ -2551,7 +2551,7 @@ void HookEngine::ResetComposition() {
     // Mouse click, Ctrl/Alt shortcut (step 5), exception handler — all funnel here.
     // Each is a "sentence-context broke" event, so drop any pending sentence arm.
     autoCapState_ = AutoCapState::Idle;
-    queueOverflowed_ = false;
+    inputQueue_.ClearOverflow();
     dispatcher_.ResetSynthEvents();  // Pending synthetics from old context are irrelevant after reset
     dispatcher_.ResetLastRealSynthTime();
 }
@@ -4310,25 +4310,7 @@ bool HookEngine::EnqueuePhysicalKey(DWORD vkCode, DWORD scanCode, DWORD flags, b
         lalt, ralt,
         lwin, rwin
     };
-
-    if (queueLength_ >= kMaxQueuedKeys) {
-        // Queue at capacity during active send:
-        // Do NOT send any keys or run the engine while an injection transaction
-        // is in-flight (Issues 1, 2). Replaying keys here would interleave between
-        // split-dispatch batches (e.g. Backspace and text).
-        // Instead, keep overflow off the sending path by dropping the oldest entry
-        // to make room for newKey in the FIFO array, and flag queueOverflowed_ so
-        // DrainInputQueue can safely reset composition once the transaction finishes.
-        for (size_t i = 1; i < queueLength_; ++i) {
-            queuedKeys_[i - 1] = queuedKeys_[i];
-        }
-        queuedKeys_[kMaxQueuedKeys - 1] = newKey;
-        queueOverflowed_ = true;
-        return true;
-    }
-
-    queuedKeys_[queueLength_++] = newKey;
-    return true;
+    return inputQueue_.Enqueue(newKey);
 }
 
 void HookEngine::ReplayPhysicalKeyEvent(const QueuedPhysicalKey& key) noexcept {
@@ -4455,7 +4437,7 @@ void HookEngine::DrainInputQueue() {
     if (isDrainingQueue_ || dispatcher_.IsSending()) {
         return;
     }
-    if (queueLength_ == 0 && !queueOverflowed_) {
+    if (inputQueue_.Empty() && !inputQueue_.HasOverflowed()) {
         return;
     }
 
@@ -4467,23 +4449,18 @@ void HookEngine::DrainInputQueue() {
     } drainScope(isDrainingQueue_);
 
     // Recover from overflow before processing entries (Issue 2)
-    if (queueOverflowed_) {
-        queueOverflowed_ = false;
+    if (inputQueue_.HasOverflowed()) {
+        inputQueue_.ClearOverflow();
         ResetComposition();
     }
 
-    while (queueLength_ > 0 && !dispatcher_.IsSending()) {
-        QueuedPhysicalKey key = queuedKeys_[0];
-        for (size_t i = 1; i < queueLength_; ++i) {
-            queuedKeys_[i - 1] = queuedKeys_[i];
-        }
-        queueLength_--;
-
+    QueuedPhysicalKey key{};
+    while (!dispatcher_.IsSending() && inputQueue_.Pop(key)) {
         ProcessQueuedKey(key);
 
         // Check and handle overflow after each transaction, before next entry (Issue 2)
-        if (queueOverflowed_) {
-            queueOverflowed_ = false;
+        if (inputQueue_.HasOverflowed()) {
+            inputQueue_.ClearOverflow();
             ResetComposition();
         }
     }

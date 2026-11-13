@@ -30,6 +30,7 @@
 #include "core/pipeline/Coordinator.h"
 #include "core/pipeline/OutputChannel.h"
 #include "core/InputQueueDecision.h"
+#include "core/PhysicalInputQueue.h"
 #include <Windows.h>
 #include <array>
 #include <atomic>
@@ -892,26 +893,9 @@ private:
 
     // Centralized Non-blocking Input Queue (Task 3.1 & 3.2):
     // Queues physical keys arriving while dispatcher_ is sending synthetic events.
-    struct QueuedPhysicalKey {
-        DWORD vkCode = 0;
-        DWORD scanCode = 0;
-        DWORD flags = 0;
-        bool isDown = false;
-        bool lshift = false;
-        bool rshift = false;
-        bool capsLock = false;
-        bool lctrl = false;
-        bool rctrl = false;
-        bool lalt = false;
-        bool ralt = false;
-        bool lwin = false;
-        bool rwin = false;
-    };
-    static constexpr size_t kMaxQueuedKeys = 64;
-    std::array<QueuedPhysicalKey, kMaxQueuedKeys> queuedKeys_{};
-    size_t queueLength_ = 0;
+    // Encapsulated in PhysicalInputQueue for portable testing, bounded memory, and release preservation.
+    PhysicalInputQueue inputQueue_{};
     bool isDrainingQueue_ = false;
-    bool queueOverflowed_ = false;
 
     bool EnqueuePhysicalKey(DWORD vkCode, DWORD scanCode, DWORD flags, bool isDown,
                             bool lshift, bool rshift, bool capsLock,
