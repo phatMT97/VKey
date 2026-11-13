@@ -34,11 +34,13 @@ struct QueuedPhysicalKey {
 
 /// Thread-confined to the hook thread.
 /// Circular ring buffer with zero allocations on common path (< 64 keys).
-/// Preserves FIFO ordering of all keystrokes during active send.
-/// Strictly protects key-up (release) events from eviction to avoid stuck keys at host.
+/// Preserves FIFO order among retained events during active send.
+/// Pressure may evict DOWNs. Emergency UPs for the same masked VK coalesce at
+/// their first pending position; releases are otherwise protected from eviction.
 class PhysicalInputQueue {
 public:
     static constexpr size_t kNormalCapacity = 64;
+    // DOWN eviction threshold; release-only storage may grow beyond it.
     static constexpr size_t kHardCeiling = 512;
 
     PhysicalInputQueue() {
@@ -46,7 +48,7 @@ public:
     }
 
     /// Enqueue a physical key event arriving while output injection is in-flight.
-    /// Returns true on success, false on allocation failure.
+    /// Returns false when a DOWN cannot be retained under memory pressure.
     bool Enqueue(const QueuedPhysicalKey& key) {
         if (count_ + emergencyCount_ >= kNormalCapacity) {
             overflowed_ = true;
@@ -236,6 +238,9 @@ private:
 
     bool PushEmergencyRelease(const QueuedPhysicalKey& key) noexcept {
         const size_t vk = static_cast<size_t>(key.vkCode & 0xFF);
+        // One slot per pending VK: count equals the number of pending bits.
+        // At capacity every masked VK is already pending, so an intact queue
+        // cannot take the full-and-unset branch below, regardless of key count.
         if (!emergencyPending_.test(vk)) {
             if (emergencyCount_ >= kEmergencyCapacity) {
                 return false;
@@ -245,6 +250,8 @@ private:
             emergencyBuf_[tail] = key;
             ++emergencyCount_;
         } else {
+            // Refresh the payload without moving the first pending slot. This
+            // coalesces repeated UPs rather than retaining every physical event.
             for (size_t i = 0; i < emergencyCount_; ++i) {
                 const size_t idx = (emergencyHead_ + i) % kEmergencyCapacity;
                 if ((emergencyBuf_[idx].vkCode & 0xFF) == vk) {

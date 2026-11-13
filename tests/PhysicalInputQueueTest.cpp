@@ -390,3 +390,66 @@ TEST(PhysicalInputQueueTest, AlternatingLoopUnderAllocationFailureMaintainsOrder
 
     EXPECT_TRUE(queue.Empty());
 }
+
+TEST(PhysicalInputQueueTest, All256EmergencyVksRemainAcceptedAtCapacityAndAfterReuse) {
+    PhysicalInputQueue queue;
+    queue.SetSimulateAllocationFailureForTesting(true);
+
+    for (unsigned round = 0; round < 2; ++round) {
+        SCOPED_TRACE(round);
+        for (uint32_t i = 0; i < PhysicalInputQueue::kNormalCapacity; ++i) {
+            ASSERT_TRUE(queue.Enqueue(MakeKey(128 + i, false)));
+        }
+        // Test the entire masked VK space, independently of keyboard key count.
+        for (uint32_t vk = 0; vk < 256; ++vk) {
+            ASSERT_TRUE(queue.Enqueue(MakeKey(vk, false)));
+        }
+        EXPECT_EQ(queue.Size(), PhysicalInputQueue::kNormalCapacity + 256);
+        EXPECT_EQ(queue.Capacity(), PhysicalInputQueue::kNormalCapacity);
+
+        for (uint32_t vk = 0; vk < 256; ++vk) {
+            ASSERT_TRUE(queue.Enqueue(MakeKey(vk, false)));
+        }
+        EXPECT_EQ(queue.Size(), PhysicalInputQueue::kNormalCapacity + 256);
+        EXPECT_FALSE(queue.Enqueue(MakeKey('A', true)));
+
+        QueuedPhysicalKey key;
+        for (uint32_t i = 0; i < PhysicalInputQueue::kNormalCapacity; ++i) {
+            ASSERT_TRUE(queue.Pop(key));
+            EXPECT_EQ(key, MakeKey(128 + i, false));
+        }
+        for (uint32_t vk = 0; vk < 256; ++vk) {
+            ASSERT_TRUE(queue.Pop(key));
+            EXPECT_EQ(key, MakeKey(vk, false));
+        }
+        EXPECT_TRUE(queue.Empty());
+    }
+}
+
+TEST(PhysicalInputQueueTest, RepeatedEmergencyUpRefreshesItsOriginalPendingPosition) {
+    PhysicalInputQueue queue;
+    for (uint32_t vk = 0; vk < PhysicalInputQueue::kNormalCapacity; ++vk) {
+        ASSERT_TRUE(queue.Enqueue(MakeKey(vk, false)));
+    }
+    queue.SetSimulateAllocationFailureForTesting(true);
+    const auto first = MakeKey('A', false);
+    const auto second = MakeKey('B', false);
+    auto repeated = first;
+    repeated.flags = 0x10;  // Same VK/scan/UP, refreshed injection metadata.
+    ASSERT_TRUE(queue.Enqueue(first));
+    ASSERT_TRUE(queue.Enqueue(second));
+    ASSERT_TRUE(queue.Enqueue(repeated));
+    EXPECT_EQ(queue.Size(), PhysicalInputQueue::kNormalCapacity + 2);
+    EXPECT_FALSE(queue.Enqueue(MakeKey('A', true)));
+
+    QueuedPhysicalKey key;
+    for (uint32_t vk = 0; vk < PhysicalInputQueue::kNormalCapacity; ++vk) {
+        ASSERT_TRUE(queue.Pop(key));
+        EXPECT_EQ(key, MakeKey(vk, false));
+    }
+    ASSERT_TRUE(queue.Pop(key));
+    EXPECT_EQ(key, repeated);
+    ASSERT_TRUE(queue.Pop(key));
+    EXPECT_EQ(key, second);
+    EXPECT_TRUE(queue.Empty());
+}
