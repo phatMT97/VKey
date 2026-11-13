@@ -2003,7 +2003,7 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
                         break;
                     }
                     SetCommitUndoReady();
-                    commitState_.SetGapEndsInGlyph(vkCode != VK_SPACE);
+                    commitState_.SetGapGlyph(VkToMacroChar(vkCode));
                     break;
                 }
                 case CommitUndoArm::Clear: CancelCommitUndo();   break;

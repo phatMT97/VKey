@@ -118,7 +118,8 @@ enum class CommitUndoArm : uint8_t {
 //   Word/Outlook AutoCorrect               "..." "--"   … —       DecideReadyGapKey
 //   Teams/Slack/Discord emoji shortcode    ":smile:"    😄        IsHostReplacedWord
 //
-// DecideReadyGapKey is generic (only spaces are countable in the gap). Word-
+// DecideReadyGapKey counts only extra spaces in the gap, and keeps words
+// following ordinary punctuation available for backward replay (#281). Word-
 // level rules are deliberately narrow — only shapes observed in a real host —
 // because each one forfeits backspace-revive for that word. When a new host
 // transform is reported: reproduce it, add a row here, extend the narrowest
@@ -146,19 +147,27 @@ enum class ReadyGapAction : uint8_t {
 /// ("k s ạ :D" → emoji → BS×3 → "d" rendered "k sajd").
 ///
 /// `triggerChar` is the char the trigger key inserts (0 when not printable).
-/// `gapEndsInGlyph` is true when the char left of the caret is the committed
-/// word's own non-space trigger (e.g. ':' in "ạ:"): a word started right
-/// there fuses with it ("ạ:D") just like an extra trigger would.
+/// `gapGlyph` is the committed word's trigger (0 after replay re-arms Ready).
+/// Keep its identity: ordinary punctuation such as the comma in "bong,s"
+/// must preserve the stack for backward editing. Emoticon openers still
+/// cancel conservatively when a word touches them (e.g. "ạ:D", "ạ(y)").
 [[nodiscard]] constexpr ReadyGapAction DecideReadyGapKey(
     bool isCommitTrigger, wchar_t triggerChar, uint8_t pendingTriggers,
-    bool gapEndsInGlyph) noexcept {
+    wchar_t gapGlyph) noexcept {
     if (isCommitTrigger) {
         // Non-printable triggers (Esc/Tab/Enter/arrows) leave the caret
         // context; printable non-space ones make the gap host-transformable.
         return triggerChar == L' ' ? ReadyGapAction::TrackSpace
                                    : ReadyGapAction::Cancel;
     }
-    if (pendingTriggers == 0 && gapEndsInGlyph) return ReadyGapAction::Cancel;
+    if (pendingTriggers == 0) {
+        switch (gapGlyph) {
+            case L':': case L';': case L'(': case L'<': case L'=': case L'8':
+                return ReadyGapAction::Cancel;
+            default:
+                break;
+        }
+    }
     return ReadyGapAction::StartWord;
 }
 

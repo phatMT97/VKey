@@ -7,6 +7,8 @@
 // covers the pure decision it now delegates to.
 
 #include "core/CommitUndoArmDecision.h"
+#include "core/engine/CommittedTextRestore.h"
+#include "core/engine/TypingEngine.h"
 #include <gtest/gtest.h>
 #include <queue>
 #include <string>
@@ -129,36 +131,92 @@ using NextKey::ReadyGapAction;
 using NextKey::ShouldCancelPrimedOnTrigger;
 
 TEST(CommitUndoArmDecisionTest, ReadyGap_ExtraSpace_IsTracked) {
-    EXPECT_EQ(DecideReadyGapKey(true, L' ', 0, false), ReadyGapAction::TrackSpace);
+    EXPECT_EQ(DecideReadyGapKey(true, L' ', 0, L' '), ReadyGapAction::TrackSpace);
     // Space after a punctuation trigger ("chịu, ") stays countable.
-    EXPECT_EQ(DecideReadyGapKey(true, L' ', 0, true), ReadyGapAction::TrackSpace);
+    EXPECT_EQ(DecideReadyGapKey(true, L' ', 0, L','), ReadyGapAction::TrackSpace);
 }
 
 TEST(CommitUndoArmDecisionTest, ReadyGap_Punctuation_Cancels_TeamsEmoticon) {
     // "ạ " + ':' — the ':' may fuse with the next char into an emoji.
-    EXPECT_EQ(DecideReadyGapKey(true, L':', 0, false), ReadyGapAction::Cancel);
+    EXPECT_EQ(DecideReadyGapKey(true, L':', 0, L' '), ReadyGapAction::Cancel);
     // "ạ:" + ')' / "ạ." + '.' / "ạ " + '8'.
-    EXPECT_EQ(DecideReadyGapKey(true, L')', 0, true), ReadyGapAction::Cancel);
-    EXPECT_EQ(DecideReadyGapKey(true, L'.', 0, true), ReadyGapAction::Cancel);
-    EXPECT_EQ(DecideReadyGapKey(true, L'8', 1, false), ReadyGapAction::Cancel);
+    EXPECT_EQ(DecideReadyGapKey(true, L')', 0, L':'), ReadyGapAction::Cancel);
+    EXPECT_EQ(DecideReadyGapKey(true, L'.', 0, L'.'), ReadyGapAction::Cancel);
+    EXPECT_EQ(DecideReadyGapKey(true, L'8', 1, L' '), ReadyGapAction::Cancel);
     // Previously counted as a pending trigger ("a==").
-    EXPECT_EQ(DecideReadyGapKey(true, L'=', 0, true), ReadyGapAction::Cancel);
+    EXPECT_EQ(DecideReadyGapKey(true, L'=', 0, L'='), ReadyGapAction::Cancel);
 }
 
 TEST(CommitUndoArmDecisionTest, ReadyGap_NonPrintableTrigger_Cancels) {
-    EXPECT_EQ(DecideReadyGapKey(true, L'\0', 0, false), ReadyGapAction::Cancel);
-    EXPECT_EQ(DecideReadyGapKey(true, L'\t', 2, false), ReadyGapAction::Cancel);
+    EXPECT_EQ(DecideReadyGapKey(true, L'\0', 0, L' '), ReadyGapAction::Cancel);
+    EXPECT_EQ(DecideReadyGapKey(true, L'\t', 2, L' '), ReadyGapAction::Cancel);
 }
 
 TEST(CommitUndoArmDecisionTest, ReadyGap_WordAfterSpace_StartsWord) {
-    EXPECT_EQ(DecideReadyGapKey(false, L'\0', 0, false), ReadyGapAction::StartWord);
+    EXPECT_EQ(DecideReadyGapKey(false, L'\0', 0, L' '), ReadyGapAction::StartWord);
     // "chịu, " + 'a': the space separates the new word from the comma.
-    EXPECT_EQ(DecideReadyGapKey(false, L'\0', 1, true), ReadyGapAction::StartWord);
+    EXPECT_EQ(DecideReadyGapKey(false, L'\0', 1, L','), ReadyGapAction::StartWord);
 }
 
 TEST(CommitUndoArmDecisionTest, ReadyGap_WordGluedToPunctuation_Cancels) {
-    // "ạ:" + 'D' → host may render "ạ😀".
-    EXPECT_EQ(DecideReadyGapKey(false, L'\0', 0, true), ReadyGapAction::Cancel);
+    // Preserve the conservative guard for emoticon openers ("ạ:D", "ạ(y)").
+    for (const wchar_t glyph : {L':', L';', L'(', L'<', L'=', L'8'}) {
+        SCOPED_TRACE(static_cast<unsigned>(glyph));
+        EXPECT_EQ(DecideReadyGapKey(false, L'\0', 0, glyph), ReadyGapAction::Cancel);
+        // A separating space keeps the next word independent of the opener.
+        EXPECT_EQ(DecideReadyGapKey(false, L'\0', 1, glyph), ReadyGapAction::StartWord);
+    }
+}
+
+TEST(CommitUndoArmDecisionTest, ReadyGap_WordAfterOrdinaryPunctuation_PreservesReplay_Issue281) {
+    // After "bong,s", deleting the 's' must still leave a saved "bong" to
+    // reopen when the comma is deleted. The glyph is the commit trigger.
+    for (const wchar_t glyph : std::wstring(L",.!?/'\"-)]}")) {
+        SCOPED_TRACE(static_cast<unsigned>(glyph));
+        EXPECT_EQ(DecideReadyGapKey(false, L'\0', 0, glyph),
+                  ReadyGapAction::StartWord);
+    }
+}
+
+TEST(CommitUndoArmDecisionTest, ToneAfterDeletingPunctuationAndTrailingWord_Issue281) {
+    using namespace NextKey;
+    for (const auto method : {InputMethod::SimpleTelex, InputMethod::Telex,
+                              InputMethod::Combined, InputMethod::VNI}) {
+        TypingConfig config;
+        config.inputMethod = method;
+        config.allowZwjf = true;
+        const std::wstring toneKeys = method == InputMethod::VNI ? L"12345" : L"sfrxj";
+        const std::wstring expectedVowels = L"óòỏõọ";
+        for (const wchar_t glyph : std::wstring(L",.!?/'\"-)]}")) {
+            for (size_t tone = 0; tone < toneKeys.size(); ++tone) {
+                SCOPED_TRACE(::testing::Message() << "method=" << static_cast<int>(method)
+                             << " glyph=" << static_cast<unsigned>(glyph) << " tone=" << tone);
+                TypingEngine engine(config);
+                const std::wstring history = L"bong";
+                for (const wchar_t ch : history) engine.PushChar(ch);
+                const auto committed = engine.Commit();
+                ASSERT_EQ(committed, L"bong");
+
+                // Hook's Ready -> Idle decision must keep the commit stack
+                // when a letter starts a word after punctuation. VNI uses a
+                // literal letter here: digits at word start are bypassed.
+                ASSERT_EQ(DecideReadyGapKey(false, L'\0', 0, glyph), ReadyGapAction::StartWord);
+                engine.PushChar(method == InputMethod::VNI ? L's' : toneKeys[tone]);
+                engine.Backspace();  // First BS removes the stray character.
+                ASSERT_EQ(engine.Count(), 0u);
+
+                // The next BS deletes punctuation and primes the saved word.
+                // Reopening uses the same committed-text restore as the hook.
+                ASSERT_NE(RestoreCommittedText(engine, committed, [&history](IInputEngine& replay) {
+                    for (const wchar_t ch : history) replay.PushChar(ch);
+                }), CommittedTextRestoreResult::Failed);
+                engine.PushChar(toneKeys[tone]);
+                std::wstring expected = L"bong";
+                expected[1] = expectedVowels[tone];
+                EXPECT_EQ(engine.Peek(), expected);
+            }
+        }
+    }
 }
 
 TEST(CommitUndoArmDecisionTest, Primed_GluedPunctuation_Cancels) {

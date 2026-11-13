@@ -120,10 +120,10 @@ public:
     }
 
     // ── Gap shape (see DecideReadyGapKey) ─────────────────────────────
-    /// True while Ready was armed by a non-space commit trigger, i.e. the char
-    /// left of the caret is punctuation a new word would fuse with.
-    [[nodiscard]] bool GapEndsInGlyph() const noexcept { return gapEndsInGlyph_; }
-    void SetGapEndsInGlyph(bool v) noexcept { gapEndsInGlyph_ = v; }
+    /// Trigger that armed Ready, so ordinary punctuation can be distinguished
+    /// from host-transformable emoticon openers. Zero after backward re-arm.
+    [[nodiscard]] wchar_t GapGlyph() const noexcept { return gapGlyph_; }
+    void SetGapGlyph(wchar_t glyph) noexcept { gapGlyph_ = glyph; }
 
     // ── Word opener (see IsHostReplacedWord) ──────────────────────────
     /// Punctuation char of the previous key (0 for anything else).
@@ -171,7 +171,7 @@ public:
         state_ = State::Idle;
         pendingTriggerCount_ = 0;
         leadingTriggersForCurrentWord_ = 0;
-        gapEndsInGlyph_ = false;
+        gapGlyph_ = L'\0';
         stack_.clear();
     }
 
@@ -197,7 +197,7 @@ private:
     State                  state_                          = State::Idle;
     std::vector<Entry>     stack_;          ///< LIFO; max kMaxStack entries
     bool                   pushedToStack_                  = false;
-    bool                   gapEndsInGlyph_                 = false;
+    wchar_t                gapGlyph_                       = L'\0';
     wchar_t                prevKeyGlyph_                   = L'\0';
     wchar_t                wordOpenGlyph_                  = L'\0';
     uint8_t                pendingTriggerCount_            = 0;

@@ -347,7 +347,7 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
                     HOOK_LOG(L"  commit-undo: space in Primed — re-enter Ready (vk=0x%02X)",
                              vkCode);
                     commitState_.SetPendingTriggers(0);
-                    commitState_.SetGapEndsInGlyph(false);
+                    commitState_.SetGapGlyph(L' ');
                     commitState_.SetReady();
                     if (dispatcher_.SynthEventsPending() > 0) {
                         HOOK_LOG(L"  commit-undo: space in Primed → Ready, re-inject after synthetics (pending=%d)",
@@ -390,7 +390,7 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
             const bool isTrigger = IsCommitTrigger(vkCode) && engine_->Count() == 0;
             const wchar_t ch = isTrigger ? VkToMacroChar(vkCode) : L'\0';
             switch (DecideReadyGapKey(isTrigger, ch, commitState_.PendingTriggerCount(),
-                                      commitState_.GapEndsInGlyph())) {
+                                      commitState_.GapGlyph())) {
                 case ReadyGapAction::TrackSpace:
                     commitState_.IncrementPendingTriggers();
                     HOOK_LOG(L"  commit-undo: extra space in Ready, pendingTriggers=%u",
@@ -402,13 +402,13 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
                     CancelCommitUndo();
                     break;
                 case ReadyGapAction::StartWord:
-                    // New word after a space gap → preserve stack for multi-word backward.
+                    // New word after a safe gap → preserve stack for multi-word backward.
                     // Carry the pending space count onto the in-progress word so it travels
                     // with the CommitEntry — without this, "chịu  a " then BS×4 + 's' would
                     // forget the second space and replay before it is deleted.
                     commitState_.SetLeadingTriggersForCurrentWord(commitState_.PendingTriggerCount());
                     commitState_.ResetPendingTriggers();
-                    commitState_.SetGapEndsInGlyph(false);
+                    commitState_.SetGapGlyph(L'\0');
                     commitState_.SetIdle();
                     break;
             }
@@ -427,11 +427,11 @@ void HookEngine::SetCommitUndoReady() {
     // or restored from a popped CommitEntry during multi-word replay).
     commitState_.SetPendingTriggers(commitState_.LeadingTriggersForCurrentWord());
     commitState_.SetLeadingTriggersForCurrentWord(0);
-    // Re-arm after BS-ing a word to empty: its leading gap is spaces only (a
-    // word glued to punctuation cancelled the stack when it started), so the
-    // caret never sits right after a glyph here. The post-commit Arm path
-    // overrides this with the actual trigger.
-    commitState_.SetGapEndsInGlyph(false);
+    // Re-arm after BS-ing a word to empty: its original trigger still needs
+    // one BS before replay, after any extra leading spaces. No key can fuse
+    // with that trigger while Ready: a new word starts fresh tracking. The
+    // post-commit Arm path supplies the actual trigger for forward typing.
+    commitState_.SetGapGlyph(L'\0');
     commitState_.SetReady();  // sets state + bumps readyTime to GetTickCount()
 }
 
