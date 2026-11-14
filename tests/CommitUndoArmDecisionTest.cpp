@@ -361,8 +361,10 @@ CommitUndoSimOutcome ProcessKeyFixed(SimulatedFsmState state, uint32_t vk,
         host.PostKey(L'\b');
         return {CommitUndoSimOutcome::Outcome::Pass, SimulatedFsmState::Primed};
     }
-    if (state == SimulatedFsmState::Primed && vk == VK_SPACE_) {
-        const auto action = DecidePrimedTriggerAction(true, L' ');
+    if (state == SimulatedFsmState::Primed) {
+        const bool isTrigger = (vk == VK_SPACE_);
+        const wchar_t triggerChar = (vk == VK_SPACE_) ? L' ' : L'\0';
+        const auto action = DecidePrimedTriggerAction(isTrigger, triggerChar);
         if (action == PrimedTriggerAction::ReEnterReady) {
             if (host.isSyncChannel) {
                 host.SyncReplace(0, L" ");
@@ -390,8 +392,10 @@ CommitUndoSimOutcome ProcessKeyBuggy(SimulatedFsmState state, uint32_t vk,
         host.PostKey(L'\b');
         return {CommitUndoSimOutcome::Outcome::Pass, SimulatedFsmState::Primed};
     }
-    if (state == SimulatedFsmState::Primed && vk == VK_SPACE_) {
-        const auto action = DecidePrimedTriggerAction(true, L' ');
+    if (state == SimulatedFsmState::Primed) {
+        const bool isTrigger = (vk == VK_SPACE_);
+        const wchar_t triggerChar = (vk == VK_SPACE_) ? L' ' : L'\0';
+        const auto action = DecidePrimedTriggerAction(isTrigger, triggerChar);
         if (action == PrimedTriggerAction::ReEnterReady) {
             // BUG: falls through without SyncReplace, passing physical key to host queue!
             host.PostKey(L' ');
