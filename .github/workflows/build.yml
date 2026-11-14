@@ -150,16 +150,16 @@ jobs:
         run: cmake -B build -G "Visual Studio 17 2022" -A x64 -DVKEY_USE_RUST_ENGINE=ON -DVKEY_ENGINE_ROOT="${{ github.workspace }}/build-engine"
 
       - name: Build VKey
-        run: cmake --build build --config Release --target VKeyApp
+        run: cmake --build build --config Release --target VKeyApp --parallel
 
       - name: Build TSF DLL
-        run: cmake --build build --config Release --target VKeyTSF
+        run: cmake --build build --config Release --target VKeyTSF --parallel
 
       - name: Build Watchdog
-        run: cmake --build build --config Release --target VKeyWatchdog
+        run: cmake --build build --config Release --target VKeyWatchdog --parallel
 
       - name: Build browser host
-        run: cmake --build build --config Release --target VKeyBrowserHost
+        run: cmake --build build --config Release --target VKeyBrowserHost --parallel
 
       - name: Build tests
         if: github.event_name != 'workflow_dispatch' || inputs.include_tests
@@ -167,9 +167,9 @@ jobs:
         # Public CI checkouts omit it; maintainer checkouts build it when present.
         shell: bash
         run: |
-          cmake --build build --config Release --target VKeyTests
+          cmake --build build --config Release --target VKeyTests --parallel
           if [ -f internal/tools/VKeyTestRunner/CMakeLists.txt ]; then
-            cmake --build build --config Release --target VKeyTestRunnerTests
+            cmake --build build --config Release --target VKeyTestRunnerTests --parallel
           fi
 
       - name: Run tests
@@ -268,18 +268,18 @@ jobs:
 
       - name: Build Classic UI and its edition-specific TSF DLL
         run: |
-          cmake --build build-classic --config Release --target VKeyLite
-          cmake --build build-classic --config Release --target VKeyTSF
-          cmake --build build-classic --config Release --target VKeyWatchdog
-          cmake --build build-classic --config Release --target VKeyBrowserHost
+          cmake --build build-classic --config Release --target VKeyLite --parallel
+          cmake --build build-classic --config Release --target VKeyTSF --parallel
+          cmake --build build-classic --config Release --target VKeyWatchdog --parallel
+          cmake --build build-classic --config Release --target VKeyBrowserHost --parallel
 
       - name: Build Classic tests
         if: github.event_name != 'workflow_dispatch' || inputs.include_tests
         shell: bash
         run: |
-          cmake --build build-classic --config Release --target VKeyTests
+          cmake --build build-classic --config Release --target VKeyTests --parallel
           if [ -f internal/tools/VKeyTestRunner/CMakeLists.txt ]; then
-            cmake --build build-classic --config Release --target VKeyTestRunnerTests
+            cmake --build build-classic --config Release --target VKeyTestRunnerTests --parallel
           fi
 
       - name: Run Classic tests

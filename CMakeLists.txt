@@ -34,7 +34,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Windows specific configurations
 if(MSVC)
-    add_compile_options(/W4 /WX /permissive- /utf-8)
+    add_compile_options(/MP /W4 /WX /permissive- /utf-8)
     add_definitions(-DUNICODE -D_UNICODE)
     # Size shrink. Most flags here are already implicit in MSVC's /O2 Release
     # path (/Gy is implied by /O2; /OPT:REF and /OPT:ICF are on by default when

@@ -1008,22 +1008,23 @@ TEST_F(RustInputEngineTest, TestSoafUserDictionary) {
     config.spellCheckEnabled = true;
     config.spellSuggestEnabled = true;
 
-    // Test without user dictionary: words get auto-corrected
+    // In engine-v1.0.1, "soà" and "khơm" are now recognized as valid attested words,
+    // so they commit as-is even without a user dictionary and are not miscorrected.
     {
         RustInputEngine engine(config);
         for (wchar_t c : std::wstring_view(L"soaf")) engine.PushChar(c);
         EXPECT_EQ(engine.Peek(), L"so\u00e0");
-        EXPECT_EQ(engine.Commit(), L"s\u00e0o");
+        EXPECT_EQ(engine.Commit(), L"so\u00e0");
         const bool correctedWithoutDict = engine.LastCommitWasCorrected();
-        EXPECT_TRUE(correctedWithoutDict);
+        EXPECT_FALSE(correctedWithoutDict);
     }
     {
         RustInputEngine engine(config);
         for (wchar_t c : std::wstring_view(L"khuwm")) engine.PushChar(c);
         EXPECT_EQ(engine.Peek(), L"kh\u01b0m");
-        EXPECT_EQ(engine.Commit(), L"khum");
+        EXPECT_EQ(engine.Commit(), L"kh\u01b0m");
         const bool correctedWithoutDict = engine.LastCommitWasCorrected();
-        EXPECT_TRUE(correctedWithoutDict);
+        EXPECT_FALSE(correctedWithoutDict);
     }
 
     // Test WITH user dictionary: words are protected and preserved!
