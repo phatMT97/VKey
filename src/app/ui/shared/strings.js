@@ -119,6 +119,7 @@ var STRINGS = {
         // Tab 4: About
         "s.tagline": "Modern Vietnamese Input Method",
         "s.version_label": "Version:",
+        "s.sciter_label": "Sciter version:",
         "s.dev_label": "Author:",
         "s.license": "VKey is open-source, free, and non-profit software.",
         "s.auto_update": "Auto-check for updates",

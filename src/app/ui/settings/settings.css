@@ -695,6 +695,12 @@
 .app-version {
     font-size: 13px;
     color: var(--text-light);
+    margin-bottom: 6px;
+}
+
+.app-sciter-version {
+    font-size: 13px;
+    color: var(--text-light);
     margin-bottom: 16px;
 }
 

@@ -1383,6 +1383,10 @@ void SettingsDialog::initializeUI() {
             std::wstring verStr = VKEY_VERSION_WSTR L" (Build: " + GetBuildVersion(__DATE__, __TIME__) + L")";
             verSpan.set_text(verStr.c_str());
         }
+        sciter::dom::element sciterSpan = root.find_first("#sciter-version-number");
+        if (sciterSpan.is_valid()) {
+            sciterSpan.set_text(SCITER_VERSION_WSTR);
+        }
         // Also update title bar version
         sciter::dom::element titleText = root.find_first(".title-text");
         if (titleText.is_valid()) {

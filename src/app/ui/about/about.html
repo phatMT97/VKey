@@ -52,6 +52,15 @@
                     </svg>
                 </span>
             </div>
+            <div class="credit-row clickable-copy" id="row-sciter-version" title="Click để sao chép thông tin phiên bản" data-i18n-title="s.click_to_copy">
+                <span class="credit-label">Sciter:</span>
+                <span class="credit-value" id="val-sciter-version">-</span>
+                <span class="copy-icon-inline">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 256 256">
+                        <path fill="currentColor" d="M216 32H88a16 16 0 0 0-16 16v40H48a16 16 0 0 0-16 16v112a16 16 0 0 0 16 16h128a16 16 0 0 0 16-16v-40h40a16 16 0 0 0 16-16V48a16 16 0 0 0-16-16m-40 184H48V104h128Zm40-56h-24V96a16 16 0 0 0-16-16H88V48h128Z"/>
+                    </svg>
+                </span>
+            </div>
             <div class="credit-row">
                 <span class="credit-label">Author:</span>
                 <span class="credit-value">PhatMT97</span>
@@ -95,9 +104,14 @@
         function copyAboutVersionInfo() {
             var verEl = document.getElementById("val-version");
             var buildEl = document.getElementById("val-build-time");
+            var sciterEl = document.getElementById("val-sciter-version");
             var ver = verEl ? verEl.textContent.trim() : "";
             var build = buildEl ? buildEl.textContent.trim() : "";
+            var sciter = sciterEl ? sciterEl.textContent.trim() : "";
             var fullStr = "VKey v" + ver + " (Build: " + build + ")";
+            if (sciter && sciter !== "-") {
+                fullStr += " | Sciter: " + sciter;
+            }
             if (copyToClipboard(fullStr)) {
                 showToastI18n("Đã sao chép thông tin phiên bản vào bộ nhớ tạm", "Copied version info to clipboard");
             } else {
@@ -110,6 +124,9 @@
 
         var rowBuild = document.getElementById("row-build-time");
         if (rowBuild) rowBuild.onclick = copyAboutVersionInfo;
+
+        var rowSciter = document.getElementById("row-sciter-version");
+        if (rowSciter) rowSciter.onclick = copyAboutVersionInfo;
     </script>
 </body>
 

@@ -12,7 +12,7 @@ AboutDialog::AboutDialog(HWND parent)
     : SciterSubDialog({
         L"this://app/about/about.html",
         L"VKey - About",
-        330, 360, parent, false, 36, 40, true
+        330, 400, parent, false, 36, 40, true
     }) {
     sciter::dom::element root = get_root();
     if (root.is_valid()) {
@@ -23,6 +23,10 @@ AboutDialog::AboutDialog(HWND parent)
         sciter::dom::element buildTimeSpan = root.find_first("#val-build-time");
         if (buildTimeSpan.is_valid()) {
             buildTimeSpan.set_text(GetBuildVersion(__DATE__, __TIME__).c_str());
+        }
+        sciter::dom::element sciterSpan = root.find_first("#val-sciter-version");
+        if (sciterSpan.is_valid()) {
+            sciterSpan.set_text(SCITER_VERSION_WSTR);
         }
     }
 }

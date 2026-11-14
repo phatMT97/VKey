@@ -32,7 +32,13 @@ function initializeVersionCopy() {
     container.onclick = function () {
         var verSpan = document.getElementById("app-version-number");
         var verText = verSpan ? verSpan.textContent.trim() : "";
-        if (copyToClipboard("VKey v" + verText)) {
+        var sciterSpan = document.getElementById("sciter-version-number");
+        var sciterVer = sciterSpan ? sciterSpan.textContent.trim() : "";
+        var copyText = "VKey v" + verText;
+        if (sciterVer && sciterVer !== "-") {
+            copyText += " | Sciter: " + sciterVer;
+        }
+        if (copyToClipboard(copyText)) {
             showToastI18n("Đã sao chép thông tin phiên bản vào bộ nhớ tạm", "Copied version info to clipboard");
         } else {
             showToastI18n("Không sao chép được thông tin phiên bản", "Could not copy version info");

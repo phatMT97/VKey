@@ -22,6 +22,32 @@ add_custom_target(VKeyGitVersion
     VERBATIM
 )
 
+# Read Sciter version from extern/sciter/VERSION or sciter-version.h at build time
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/extern/sciter/VERSION")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/extern/sciter/VERSION" _sciter_version_raw)
+    string(STRIP "${_sciter_version_raw}" SCITER_VERSION)
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/extern/sciter/include/sciter-version.h")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/extern/sciter/include/sciter-version.h" _sciter_ver_lines)
+    set(_v0 0)
+    set(_v1 0)
+    set(_v2 0)
+    set(_v3 0)
+    foreach(_line ${_sciter_ver_lines})
+        if(_line MATCHES "SCITER_VERSION_0[ \t]+([0-9]+)")
+            set(_v0 "${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "SCITER_VERSION_1[ \t]+([0-9]+)")
+            set(_v1 "${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "SCITER_VERSION_2[ \t]+([0-9]+)")
+            set(_v2 "${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "SCITER_VERSION_3[ \t]+([0-9]+)")
+            set(_v3 "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    set(SCITER_VERSION "${_v0}.${_v1}.${_v2}.${_v3}")
+else()
+    set(SCITER_VERSION "unknown")
+endif()
+
 # Generate Version.h from Version.h.in — version is defined once in project() above.
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/core/Version.h.in
