@@ -632,6 +632,7 @@ bool EngineController::HandleKey(ITfContext* pContext, UINT vkCode) {
     if (IsEngineDigitKey(vkCode) && engine_->Count() > 0) {
         wchar_t ch = static_cast<wchar_t>(vkCode);  // VK '0'-'9' = 0x30-0x39 = L'0'-L'9'
         TSF_LOG(L"HandleKey: pushing VNI digit '%c'", ch);
+        TrackMacroCharacter(ch);
         engine_->PushChar(ch);
 
         std::wstring composition = engine_->Peek();

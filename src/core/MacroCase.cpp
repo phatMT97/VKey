@@ -7,6 +7,7 @@
 #include <cwctype>
 
 #include "core/engine/CodeTableConverter.h"
+#include "core/engine/VietnameseTables.h"
 
 namespace NextKey::Macro {
 
@@ -23,6 +24,91 @@ namespace {
         if (lower != c) return true;
     }
     return false;
+}
+
+// Check if the first character of raw input corresponds to the start of composition,
+// accounting for quick-start consonants (f->ph, j->gi, w->qu/ư), d->đ, and base vowels.
+[[nodiscard]] bool FirstCharMatchesWordStart(wchar_t rawCh, std::wstring_view comp) noexcept {
+    if (comp.empty()) return true;
+    const wchar_t r = ToLowerVietnamese(rawCh);
+    const wchar_t c0 = ToLowerVietnamese(comp[0]);
+
+    // Quick-start consonants: f->ph, j->gi, w->qu
+    if (r == L'f') return comp.size() >= 2 && c0 == L'p' && ToLowerVietnamese(comp[1]) == L'h';
+    if (r == L'j') return comp.size() >= 2 && c0 == L'g' && ToLowerVietnamese(comp[1]) == L'i';
+    if (r == L'w') {
+        if (comp.size() >= 2 && c0 == L'q' && ToLowerVietnamese(comp[1]) == L'u') return true;
+        // Standalone w -> ư in Telex
+        return c0 == L'w' || c0 == L'ư';
+    }
+
+    // d -> d or đ
+    if (r == L'd') return c0 == L'd' || c0 == L'đ';
+
+    // Vowels: match against base vowel and its modified/toned forms
+    if (r == L'a') {
+        return c0 == L'a' || c0 == L'à' || c0 == L'á' || c0 == L'ả' || c0 == L'ã' || c0 == L'ạ' ||
+               c0 == L'ă' || c0 == L'ằ' || c0 == L'ắ' || c0 == L'ẳ' || c0 == L'ẵ' || c0 == L'ặ' ||
+               c0 == L'â' || c0 == L'ầ' || c0 == L'ấ' || c0 == L'ẩ' || c0 == L'ẫ' || c0 == L'ậ';
+    }
+    if (r == L'e') {
+        return c0 == L'e' || c0 == L'è' || c0 == L'é' || c0 == L'ẻ' || c0 == L'ẽ' || c0 == L'ẹ' ||
+               c0 == L'ê' || c0 == L'ề' || c0 == L'ế' || c0 == L'ể' || c0 == L'ễ' || c0 == L'ệ';
+    }
+    if (r == L'i') {
+        return c0 == L'i' || c0 == L'ì' || c0 == L'í' || c0 == L'ỉ' || c0 == L'ĩ' || c0 == L'ị';
+    }
+    if (r == L'o') {
+        return c0 == L'o' || c0 == L'ò' || c0 == L'ó' || c0 == L'ỏ' || c0 == L'õ' || c0 == L'ọ' ||
+               c0 == L'ô' || c0 == L'ồ' || c0 == L'ố' || c0 == L'ổ' || c0 == L'ỗ' || c0 == L'ộ' ||
+               c0 == L'ơ' || c0 == L'ờ' || c0 == L'ớ' || c0 == L'ở' || c0 == L'ỡ' || c0 == L'ợ';
+    }
+    if (r == L'u') {
+        return c0 == L'u' || c0 == L'ù' || c0 == L'ú' || c0 == L'ủ' || c0 == L'ũ' || c0 == L'ụ' ||
+               c0 == L'ư' || c0 == L'ừ' || c0 == L'ứ' || c0 == L'ử' || c0 == L'ữ' || c0 == L'ự';
+    }
+    if (r == L'y') {
+        return c0 == L'y' || c0 == L'ỳ' || c0 == L'ý' || c0 == L'ỷ' || c0 == L'ỹ' || c0 == L'ỵ';
+    }
+
+    // All other consonants: must match exactly
+    return r == c0;
+}
+
+// Compute the maximum number of characters that raw input could have expanded by
+// through quick consonants (quick-start: f->ph, j->gi, w->qu; quick-end: g->ng, h->nh, k->ch).
+[[nodiscard]] size_t MaxAllowedConsonantExpansion(std::wstring_view raw, std::wstring_view comp) noexcept {
+    if (raw.empty() || comp.empty()) return 0;
+
+    size_t expansion = 0;
+
+    // 1. Quick-start consonant: f->ph, j->gi, w->qu (+1 char)
+    const wchar_t firstRaw = ToLowerVietnamese(raw.front());
+    if (comp.size() >= 2) {
+        const wchar_t c0 = ToLowerVietnamese(comp[0]);
+        const wchar_t c1 = ToLowerVietnamese(comp[1]);
+        if ((firstRaw == L'f' && c0 == L'p' && c1 == L'h') ||
+            (firstRaw == L'j' && c0 == L'g' && c1 == L'i') ||
+            (firstRaw == L'w' && c0 == L'q' && c1 == L'u')) {
+            expansion += 1;
+        }
+    }
+
+    // 2. Quick-end consonant: g->ng, h->nh, k->ch (+1 char)
+    // Quick-end requires at least 2 chars in raw (vowel + consonant).
+    if (raw.size() >= 2 && comp.size() >= 2) {
+        const wchar_t lastRaw = ToLowerVietnamese(raw.back());
+        const size_t compLen = comp.size();
+        const wchar_t penComp = ToLowerVietnamese(comp[compLen - 2]);
+        const wchar_t lastComp = ToLowerVietnamese(comp[compLen - 1]);
+        if ((lastRaw == L'g' && penComp == L'n' && lastComp == L'g') ||
+            (lastRaw == L'h' && penComp == L'n' && lastComp == L'h') ||
+            (lastRaw == L'k' && penComp == L'c' && lastComp == L'h')) {
+            expansion += 1;
+        }
+    }
+
+    return expansion;
 }
 
 enum class CapsStyle { None, FirstLetter, Words, All };
@@ -95,15 +181,24 @@ MacroPlan Plan(const PlanInputs& in, const CaseMapper& mapper) {
     };
 
     // When previousComposition is active without cross-commit, rawMacroBuffer
-    // must account for the whole word on screen. A raw buffer strictly shorter
-    // than previousComposition (allowing +2 for combined quick-start f->ph/j->gi/w->qu
-    // and quick-end g->ng/h->nh/k->ch) is an orphan tail inside a larger word,
-    // not at a word boundary.
-    const size_t rawTextLen = (!in.rawMacroBuffer.empty() && in.triggerChar > L' ' && in.rawMacroBuffer.back() == in.triggerChar)
-        ? in.rawMacroBuffer.size() - 1
-        : in.rawMacroBuffer.size();
-    const bool isOrphanTail = !in.macroCrossCommit && !in.previousComposition.empty() &&
-        (rawTextLen + 2 < in.previousComposition.size());
+    // must account for the whole word on screen. We compute the maximum valid
+    // expansion produced by quick consonants (quick-start: f->ph/j->gi/w->qu;
+    // quick-end: g->ng/h->nh/k->ch). If rawMacroBuffer is strictly shorter than
+    // previousComposition even after accounting for valid expansions, or if its
+    // leading character does not align with the start of composition, it is an
+    // orphan tail inside a larger word, not at a word boundary.
+    std::wstring_view rawView = in.rawMacroBuffer;
+    if (!rawView.empty() && in.triggerChar > L' ' && rawView.back() == in.triggerChar) {
+        rawView.remove_suffix(1);
+    }
+    bool isOrphanTail = false;
+    if (!in.macroCrossCommit && !in.previousComposition.empty() && !rawView.empty()) {
+        const size_t allowedExpansion = MaxAllowedConsonantExpansion(rawView, in.previousComposition);
+        const bool tooShort = (rawView.size() + allowedExpansion < in.previousComposition.size());
+        const bool mismatchedStart = (rawView.size() < in.previousComposition.size()) &&
+                                     !FirstCharMatchesWordStart(rawView.front(), in.previousComposition);
+        isOrphanTail = tooShort || mismatchedStart;
+    }
 
     // Priority 1: full buffer (raw exact, fall back to lowered)
     auto it = isOrphanTail ? in.macroTable.end() : lookup(in.rawMacroBuffer);

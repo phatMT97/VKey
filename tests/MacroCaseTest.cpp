@@ -1089,5 +1089,45 @@ TEST(MacroTailInsideWordTest, FullWordMatchingRawBufferMatches) {
     EXPECT_TRUE(f.Run().matched);
 }
 
+TEST(MacroTailInsideWordTest, OrphanTailInsideWordEndingInSameConsonantRejected) {
+    PlanFixture f;
+    f.table[L"k"] = L"không";
+    f.raw = L"k";
+    f.prevComp = L"ok";
+    f.crossCommit = false;
+    f.trigger = L' ';
+    EXPECT_FALSE(f.Run().matched);
+}
+
+TEST(MacroTailInsideWordTest, OrphanTailInsideWordWithQuickEndConsonantRejected) {
+    PlanFixture f;
+    f.table[L"nh"] = L"nhanh";
+    f.raw = L"nh";
+    f.prevComp = L"anh";
+    f.crossCommit = false;
+    f.trigger = L' ';
+    EXPECT_FALSE(f.Run().matched);
+}
+
+TEST(MacroTailInsideWordTest, QuickEndConsonantExpansionAloneIsAllowed) {
+    PlanFixture f;
+    f.table[L"ak"] = L"ách";
+    f.raw = L"ak";
+    f.prevComp = L"ach";
+    f.crossCommit = false;
+    f.trigger = L' ';
+    EXPECT_TRUE(f.Run().matched);
+}
+
+TEST(MacroTailInsideWordTest, CombinedQuickStartAndEndExpansionsAllowed) {
+    PlanFixture f;
+    f.table[L"fag"] = L"nội dung";
+    f.raw = L"fag";
+    f.prevComp = L"phang";
+    f.crossCommit = false;
+    f.trigger = L' ';
+    EXPECT_TRUE(f.Run().matched);
+}
+
 }  // namespace
 }  // namespace NextKey::Macro

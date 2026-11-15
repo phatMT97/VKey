@@ -256,7 +256,8 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
             {
                 bool shift = cachedShift;
                 bool caps = cachedCapsLock;
-                if (!rawMacroBuffer_.empty()) {
+                if (macroEnabled_.load(std::memory_order_acquire) && !rawMacroBuffer_.empty()) {
+                    macroUndoSuppressed_ = false;
                     bool upper = shift != caps;
                     rawMacroBuffer_ += upper ? static_cast<wchar_t>(vkCode)
                                              : towlower(static_cast<wchar_t>(vkCode));
@@ -282,6 +283,11 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
             if (!ReplayCommittedChars() || engine_->Count() == 0) {
                 commitState_.SetIdle();
                 return KeyOutcome::Pass;  // Replay failed — let digit pass through
+            }
+            if (macroEnabled_.load(std::memory_order_acquire) && !rawMacroBuffer_.empty()) {
+                macroUndoSuppressed_ = false;
+                rawMacroBuffer_ += static_cast<wchar_t>(vkCode);
+                if (rawMacroBuffer_.size() > kMaxRawMacroBuffer) ClearMacroBuffer();
             }
             return HandleVniDigitKey(vkCode)
                 ? KeyOutcome::Eat
