@@ -767,6 +767,7 @@ private:
     bool wasFirstCharAutoCapped_ = false;  // First char of current word was auto-capitalized by AutoCaps
     // (macroTable_ + spaceMacroKeys_ removed — Phase 3d. Live in
     // configSnapshot_->macroTable / ->spaceMacroKeys now.)
+    static constexpr size_t kMaxRawMacroBuffer = 128;
     std::wstring rawMacroBuffer_;
 
     // Macro undo on Backspace (issue #264)

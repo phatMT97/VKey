@@ -94,14 +94,21 @@ MacroPlan Plan(const PlanInputs& in, const CaseMapper& mapper) {
             : in.macroTable.find(LowerCopy(candidate, mapper));
     };
 
+    // When previousComposition is active without cross-commit, rawMacroBuffer
+    // must account for the whole word on screen. A raw buffer strictly shorter
+    // than previousComposition (allowing +1 for quick-start f->ph, j->gi, w->qu)
+    // is an orphan tail inside a larger word, not at a word boundary.
+    const bool isOrphanTail = !in.macroCrossCommit && !in.previousComposition.empty() &&
+        (in.rawMacroBuffer.size() + 1 < in.previousComposition.size());
+
     // Priority 1: full buffer (raw exact, fall back to lowered)
-    auto it = lookup(in.rawMacroBuffer);
+    auto it = isOrphanTail ? in.macroTable.end() : lookup(in.rawMacroBuffer);
     if (it != in.macroTable.end() && in.triggerChar > L' ') {
         plan.isPartOfMacro = true;
     }
 
     // Priority 2: buffer without trigger char (e.g. "btw" from "btw.")
-    if (it == in.macroTable.end() && in.triggerChar > L' ' &&
+    if (!isOrphanTail && it == in.macroTable.end() && in.triggerChar > L' ' &&
         in.rawMacroBuffer.size() > 1 && in.rawMacroBuffer.back() == in.triggerChar) {
         std::wstring rawWithoutTrigger =
             in.rawMacroBuffer.substr(0, in.rawMacroBuffer.size() - 1);

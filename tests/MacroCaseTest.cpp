@@ -991,5 +991,45 @@ TEST(ReplacementDocumentTextTest, CrossCommitIncludesTheEarlierWords) {
     EXPECT_EQ(plan.shortcut, L"xin vn.");
 }
 
+TEST(MacroTailInsideWordTest, OrphanTailRawBufferDoesNotMatchOverLongerComposition) {
+    PlanFixture f;
+    f.table[L"k"] = L"không";
+    f.raw = L"k";
+    f.prevComp = L"hook";
+    f.crossCommit = false;
+    f.trigger = L' ';
+    EXPECT_FALSE(f.Run().matched);
+}
+
+TEST(MacroTailInsideWordTest, OrphanTailRawBufferWithPunctuationTriggerRejected) {
+    PlanFixture f;
+    f.table[L"k."] = L"không";
+    f.raw = L"k.";
+    f.prevComp = L"hook";
+    f.crossCommit = false;
+    f.trigger = L'.';
+    EXPECT_FALSE(f.Run().matched);
+}
+
+TEST(MacroTailInsideWordTest, QuickStartExpansionIsAllowed) {
+    PlanFixture f;
+    f.table[L"f"] = L"phở";
+    f.raw = L"f";
+    f.prevComp = L"ph";
+    f.crossCommit = false;
+    f.trigger = L' ';
+    EXPECT_TRUE(f.Run().matched);
+}
+
+TEST(MacroTailInsideWordTest, FullWordMatchingRawBufferMatches) {
+    PlanFixture f;
+    f.table[L"k"] = L"không";
+    f.raw = L"k";
+    f.prevComp = L"k";
+    f.crossCommit = false;
+    f.trigger = L' ';
+    EXPECT_TRUE(f.Run().matched);
+}
+
 }  // namespace
 }  // namespace NextKey::Macro

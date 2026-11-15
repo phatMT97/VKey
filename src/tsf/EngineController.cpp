@@ -500,6 +500,16 @@ bool EngineController::HandleKey(ITfContext* pContext, UINT vkCode) {
         // PrepareBackspaceRevive (and passed the English-word gate). Wire up
         // composition covering the cached range, then apply backspace.
         if (HasPendingRevive()) {
+            if (IsMacroTrackingEnabled()) {
+                const std::wstring raw = MatchingRawForCommittedWord(pendingReviveWord_);
+                const std::wstring_view word = !raw.empty() ? raw : pendingReviveWord_;
+                rawMacroBuffer_ = Macro::RawBufferForRevive(rawMacroBuffer_, word);
+                wasFirstCharAutoCapped_ = false;
+                if (!rawMacroBuffer_.empty()) {
+                    rawMacroBuffer_.pop_back();
+                    if (rawMacroBuffer_.empty()) ClearMacroTracking();
+                }
+            }
             auto* pSession = new ReviveCompositionEditSession(
                 pContext, &compositionMgr_, engine_.get(),
                 pendingReviveWord_, pendingReviveRange_,

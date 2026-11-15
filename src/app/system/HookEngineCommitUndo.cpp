@@ -9,6 +9,7 @@
 #include "core/CommitUndoArmDecision.h"
 #include "core/CommitUndoExemption.h"
 #include "core/Logger.h"
+#include "core/MacroCase.h"
 #include "core/engine/CommittedTextRestore.h"
 #include "core/pipeline/ICommitUndoExecutor.h"
 #include "output/IOutputInjector.h"
@@ -255,6 +256,12 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
             {
                 bool shift = cachedShift;
                 bool caps = cachedCapsLock;
+                if (!rawMacroBuffer_.empty()) {
+                    bool upper = shift != caps;
+                    rawMacroBuffer_ += upper ? static_cast<wchar_t>(vkCode)
+                                             : towlower(static_cast<wchar_t>(vkCode));
+                    if (rawMacroBuffer_.size() > kMaxRawMacroBuffer) ClearMacroBuffer();
+                }
                 return HandleAlphaKey(vkCode, shift, caps)
                     ? KeyOutcome::Eat
                     : KeyOutcome::Pass;
@@ -293,6 +300,10 @@ HookEngine::KeyOutcome HookEngine::HandleCommitUndoFsm(DWORD vkCode, bool vnMode
                      dispatcher_.SynthEventsPending());
             if (!ReplayCommittedChars(/*preferVisibleText=*/true)) {
                 return KeyOutcome::Pass;
+            }
+            if (!rawMacroBuffer_.empty()) {
+                rawMacroBuffer_.pop_back();
+                if (rawMacroBuffer_.empty()) ClearMacroBuffer();
             }
             HandleBackspace();
             return KeyOutcome::Eat;
@@ -489,6 +500,14 @@ bool HookEngine::ReplayCommittedChars(bool preferVisibleText) {
         currentHistory.assign(entry.text.begin(), entry.text.end());
     } else {
         currentHistory.assign(entry.history.begin(), entry.history.end());
+    }
+
+    if (macroEnabled_.load(std::memory_order_acquire)) {
+        std::wstring_view word = !entry.rawInput.empty() ? entry.rawInput : entry.text;
+        rawMacroBuffer_ = Macro::RawBufferForRevive(rawMacroBuffer_, word);
+        wasFirstCharAutoCapped_ = false;
+        macroCrossCommit_ = false;
+        macroUndoSuppressed_ = false;
     }
 
     // Restore screen state so ReplaceComposition can diff correctly

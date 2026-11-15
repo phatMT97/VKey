@@ -912,12 +912,6 @@ void HookEngine::ReloadFromToml() {
 // ═══════════════════════════════════════════════════════════
 
 namespace {
-// Hard cap on the raw macro-tracking buffer. No macro key is remotely this long
-// (config caps keys at 32), so a buffer past this can't match anything — clear it
-// rather than let a trigger-less keystroke stream grow it unbounded and slow the
-// per-key macro lookup on the hot path.
-constexpr size_t kMaxRawMacroBuffer = 128;
-
 // SEH filter: log the structured-exception code, then execute the handler.
 // Kept at file scope (no C++ locals) so it is safe to call from an __except
 // filter expression. Runs in the LL-hook thread of VKeyApp.
