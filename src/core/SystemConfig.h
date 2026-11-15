@@ -55,6 +55,7 @@ struct SystemConfig {
 
     // Startup mode
     uint8_t startupMode = 0;   // 0=Vietnamese, 1=English, 2=Remember (Smart Switch persist)
+    uint8_t startupDelay = 0;  // Startup delay in seconds (0 = immediate, max 60)
 
     // Auto-update
     bool autoCheckUpdate = true;   // Check for updates on startup

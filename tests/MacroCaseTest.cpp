@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include "core/MacroCase.h"
+#include "core/engine/TypingEngine.h"
 #include "core/engine/VietnameseTables.h"
 
 namespace NextKey::Macro {
@@ -1020,6 +1021,63 @@ TEST(MacroTailInsideWordTest, QuickStartExpansionIsAllowed) {
     f.trigger = L' ';
     EXPECT_TRUE(f.Run().matched);
 }
+
+class MacroQuickConsonantTest : public ::testing::TestWithParam<bool> {
+protected:
+    void ExpectRawShortcutMatches(bool quickStart, bool quickEnd,
+                                  const wchar_t* raw, const wchar_t* composed) {
+        TypingConfig config;
+        config.quickStartConsonant = quickStart;
+        config.quickEndConsonant = quickEnd;
+        TypingEngine engine(config);
+        for (wchar_t ch : std::wstring(raw)) engine.PushChar(ch);
+        ASSERT_EQ(engine.Peek(), composed);
+
+        PlanFixture f;
+        f.table[raw] = L"expanded";
+        f.raw = raw;
+        f.prevComp = engine.Peek();
+        // Printable triggers are tracked before Plan; Space is not appended.
+        f.trigger = GetParam() ? L'.' : L' ';
+        if (GetParam()) f.raw += f.trigger;
+
+        const auto plan = f.Run();
+        ASSERT_TRUE(plan.matched);
+        EXPECT_EQ(plan.shortcut, raw);
+        EXPECT_EQ(plan.expansion, L"expanded");
+        EXPECT_EQ(plan.bsCount, f.prevComp.size());
+        EXPECT_FALSE(plan.isPartOfMacro);
+    }
+};
+
+TEST_P(MacroQuickConsonantTest, QuickStartOnlyKeepsRawShortcut) {
+    ExpectRawShortcutMatches(true, false, L"fan", L"phan");
+}
+
+TEST_P(MacroQuickConsonantTest, QuickEndOnlyKeepsRawShortcut) {
+    ExpectRawShortcutMatches(false, true, L"bag", L"bang");
+}
+
+TEST_P(MacroQuickConsonantTest, QuickStartAndEndKeepRawShortcut) {
+    const struct {
+        const wchar_t* raw;
+        const wchar_t* composed;
+    } cases[] = {
+        {L"fag", L"phang"},
+        {L"jah", L"gianh"},
+        {L"wak", L"quach"},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(::testing::Message() << "raw shortcut: " << test.raw);
+        ExpectRawShortcutMatches(true, true, test.raw, test.composed);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    SpaceAndPunctuationTriggers, MacroQuickConsonantTest, ::testing::Bool(),
+    [](const ::testing::TestParamInfo<bool>& info) {
+        return info.param ? "Punctuation" : "Space";
+    });
 
 TEST(MacroTailInsideWordTest, FullWordMatchingRawBufferMatches) {
     PlanFixture f;

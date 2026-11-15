@@ -22,6 +22,7 @@
    - [🚀 12. Gõ tắt (Macro)](#macro)
    - [🔁 13. Tự khởi động lại (Watchdog)](#watchdog)
    - [🔄 14. Công cụ chuyển mã nhanh](#convert-tool)
+   - [⏱️ 15. Trì hoãn khởi động & Khởi động lại](#startup-delay-restart)
 3. [🛡️ Cảnh báo bảo mật & Debug Log](#security-warning)
 
 ---
@@ -200,6 +201,18 @@ VKey cung cấp công cụ chuyển đổi bảng mã và biến đổi chữ c�
     - Nhấn lần 3 → `Xin chào` (quay về bản gốc)
   - Chu kỳ tự động hết hạn sau **5 giây** không thao tác hoặc khi bạn chọn đoạn văn bản khác.
 - *📌 Lưu ý:* Tính năng "Convert tuần tự" chỉ khả dụng khi "Tự động dán + bôi đen" đang bật.
+
+### <span id="startup-delay-restart">⏱️ 15. Trì hoãn khởi động & Khởi động lại bộ gõ</span>
+
+#### 🔄 Khởi động lại nhanh từ khay hệ thống (Restart VKey)
+- Khi gặp các tình huống phím bị can thiệp bởi ứng dụng khác (ví dụ: chơi game có anticheat, mở các phần mềm gõ tắt/macro ngoài như Jitbit AutoText/PhraseExpress sau VKey làm lệch hook bàn phím, hoặc sau khi reconnect Remote Desktop), bạn không cần phải thoát ra mở lại thủ công.
+- Chỉ cần **nhấp chuột phải vào icon VKey ở khay hệ thống (traybar) → chọn `Khởi động lại` (Restart)**.
+- VKey sẽ khởi chạy một phiên mới và tự động giành lại vị trí **ưu tiên cao nhất ở đầu chuỗi hook bàn phím của Windows**, giúp gõ tiếng Việt ổn định ngay lập tức.
+
+#### ⏳ Trì hoãn khởi động cùng Windows (Startup Delay)
+- *Vị trí:* Cài đặt → Tab **Hệ thống** → Ngay dưới mục **Khởi động cùng Windows**.
+- *Công dụng:* Cho phép nhập số giây trì hoãn (từ `0` đến `60` giây, khuyến nghị `3` đến `5` giây).
+- *Lý do sử dụng:* Khi máy tính vừa khởi động vào màn hình Desktop, hàng loạt phần mềm chạy nền (Discord, Steam, phần mềm diệt virus, công cụ gõ tắt bên thứ ba...) cùng đồng loạt khởi động. Nếu VKey khởi động quá sớm, các phần mềm mở sau có thể cài hook đè lên trên VKey gây xung đột phím. Tính năng trì hoãn giúp VKey đợi các phần mềm nền khác khởi động xong xuôi rồi mới nạp, đảm bảo VKey luôn nhận phím trước tiên.
 
 ---
 

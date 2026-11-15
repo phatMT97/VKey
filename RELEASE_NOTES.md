@@ -3,6 +3,8 @@
 Bản cập nhật tập trung cải thiện **gõ tắt, tương thích ứng dụng và độ ổn định**.
 
 ### ✨ Tính năng mới
+- **Khởi động lại từ khay hệ thống (Restart VKey):** Thêm tùy chọn "Khởi động lại" ngay trên menu chuột phải ở khay hệ thống. Giúp khởi động lại bộ gõ chỉ với 1 cú click để lấy lại vị trí đầu chuỗi hook bàn phím khi bị phần mềm khác (game, AutoText ngoài, RDP...) đè hook. ([#274](https://github.com/phatMT97/VKey/issues/274))
+- **Trì hoãn khởi động cùng Windows (Startup Delay):** Thêm tùy chọn cấu hình số giây trì hoãn khi khởi động cùng Windows (0–60 giây, khuyến nghị 3–5 giây) trong Cài đặt → Hệ thống. Giúp VKey luôn khởi động sau các ứng dụng chạy nền khác để tránh xung đột hook. ([#274](https://github.com/phatMT97/VKey/issues/274))
 - **Khôi phục gõ tắt bằng Backspace:** Gõ `bbh` → `bún bò Huế`, nhấn Backspace để trở lại `bbh`. Cho phép thay đổi từ gõ tắt sau khi Backspace. ([#264](https://github.com/phatMT97/VKey/issues/264))
 - **Cải thiện viết hoa macro:** `BBH` → `BÚN BÒ HUẾ`, `Bbh` → `Bún bò Huế`. Có thêm tùy chọn viết hoa đầu từng từ. ([#265](https://github.com/phatMT97/VKey/issues/265))
 - **Tương thích WebView2 / Tauri:** Thêm cách gửi phím mới, khắc phục lỗi mất ký tự tiếng Việt trong Mooring và terminal nhúng.

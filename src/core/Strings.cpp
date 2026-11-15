@@ -22,6 +22,7 @@ static const wchar_t* const kVietnamese[] = {
     L"Unicode tổ hợp",                               // MENU_UNICODE_COMPOUND
     L"Bảng điều khiển...",                            // MENU_SETTINGS
     L"Giới thiệu VKey",                          // MENU_ABOUT
+    L"Khởi động lại",                                // MENU_RESTART
     L"Thoát",                                        // MENU_EXIT
     L"Tắt tự khởi động lại",                         // MENU_STOP_WATCHDOG
     L"Bật tự khởi động lại",                         // MENU_ENABLE_WATCHDOG
@@ -115,6 +116,7 @@ static const wchar_t* const kEnglish[] = {
     L"Unicode Compound",                              // MENU_UNICODE_COMPOUND
     L"Settings...",                                   // MENU_SETTINGS
     L"About VKey",                                // MENU_ABOUT
+    L"Restart",                                       // MENU_RESTART
     L"Exit",                                          // MENU_EXIT
     L"Stop auto-restart",                             // MENU_STOP_WATCHDOG
     L"Enable auto-restart",                           // MENU_ENABLE_WATCHDOG

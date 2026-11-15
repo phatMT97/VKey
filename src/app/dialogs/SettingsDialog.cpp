@@ -564,7 +564,7 @@ bool SettingsDialog::handle_event(HELEMENT he, BEHAVIOR_EVENT_PARAMS& params) {
         }
 
         // Handle dropdown changes
-        if (id == L"input-type" || id == L"bang-ma" || id == L"spell-check-level" || id == L"startup-mode" || id == L"temp-off-openkey") {
+        if (id == L"input-type" || id == L"bang-ma" || id == L"spell-check-level" || id == L"startup-mode" || id == L"startup-delay" || id == L"temp-off-openkey") {
             sciter::value val = el.get_value();
             int intValue = 0;
             if (val.is_int()) intValue = val.get<int>();
@@ -976,6 +976,11 @@ void SettingsDialog::handleDropdownChange(const std::wstring& id, int value) {
     }
     else if (id == L"startup-mode") {
         systemConfig_.startupMode = static_cast<uint8_t>(value);
+        saveSystemSettings();
+        return;  // System setting, not typing config
+    }
+    else if (id == L"startup-delay") {
+        systemConfig_.startupDelay = static_cast<uint8_t>(value);
         saveSystemSettings();
         return;  // System setting, not typing config
     }
@@ -1396,6 +1401,7 @@ void SettingsDialog::initializeUI() {
 
     // Startup mode dropdown
     setDropdownValue(L"startup-mode", static_cast<int>(systemConfig_.startupMode));
+    setDropdownValue(L"startup-delay", static_cast<int>(systemConfig_.startupDelay));
 
     // Set switch key character (display "Space" for space char)
     sciter::dom::element switchKeyInput = root.find_first("#switch-key-char");
@@ -1676,6 +1682,7 @@ void SettingsDialog::saveSystemSettings() {
     toSave.forceLightTheme = systemConfig_.forceLightTheme;
     toSave.autoCheckUpdate = systemConfig_.autoCheckUpdate;
     toSave.startupMode     = systemConfig_.startupMode;
+    toSave.startupDelay    = systemConfig_.startupDelay;
 
     std::wstring path = ConfigManager::GetConfigPath();
     if (!ConfigManager::SaveSystemConfig(path, toSave)) {

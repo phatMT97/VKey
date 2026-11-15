@@ -928,5 +928,48 @@ wire_generation = 9876543210
     EXPECT_EQ(ConfigManager::LoadWireGeneration(testConfigPath_), 9876543211ULL);
 }
 
+TEST_F(ConfigManagerTest, SystemConfig_StartupDelayDefault) {
+    WriteTestConfig(R"(
+[system]
+run_at_startup = true
+)");
+
+    auto config = ConfigManager::LoadSystemConfig(testConfigPath_);
+    ASSERT_TRUE(config.has_value());
+    EXPECT_EQ(config->startupDelay, 0);
+}
+
+TEST_F(ConfigManagerTest, SystemConfig_StartupDelayRoundTrip) {
+    SystemConfig sys;
+    sys.runAtStartup = true;
+    sys.startupDelay = 10;
+    ASSERT_TRUE(ConfigManager::SaveSystemConfig(testConfigPath_, sys));
+
+    auto loaded = ConfigManager::LoadSystemConfig(testConfigPath_);
+    ASSERT_TRUE(loaded.has_value());
+    EXPECT_EQ(loaded->startupDelay, 10);
+    EXPECT_TRUE(loaded->runAtStartup);
+}
+
+TEST_F(ConfigManagerTest, SystemConfig_StartupDelayClamped) {
+    WriteTestConfig(R"(
+[system]
+startup_delay = 999
+)");
+
+    auto config = ConfigManager::LoadSystemConfig(testConfigPath_);
+    ASSERT_TRUE(config.has_value());
+    EXPECT_EQ(config->startupDelay, 60);
+
+    WriteTestConfig(R"(
+[system]
+startup_delay = -5
+)");
+
+    config = ConfigManager::LoadSystemConfig(testConfigPath_);
+    ASSERT_TRUE(config.has_value());
+    EXPECT_EQ(config->startupDelay, 0);
+}
+
 }  // namespace
 }  // namespace NextKey

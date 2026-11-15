@@ -452,6 +452,15 @@ static void OnMenuCommand(TrayMenuId id) {
             break;
         }
 
+        case TrayMenuId::Restart:
+            if (RestartApp()) {
+                ShutdownLexiconWireMapping();
+                g_watchdog.SignalGracefulShutdown();
+                g_running.store(false, std::memory_order_relaxed);
+                PostQuitMessage(0);
+            }
+            break;
+
         case TrayMenuId::Exit:
             ShutdownLexiconWireMapping();
             // Tell watchdog this is a user-initiated quit — skip respawn.
@@ -631,6 +640,11 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int) {
     // Initialize UI language
     auto systemConfig = ConfigManager::LoadSystemConfigOrDefault();
     SetLanguage(static_cast<Language>(systemConfig.language));
+
+    if (HasCmdlineFlag(lpCmdLine, STARTUP_FLAG) && systemConfig.startupDelay > 0) {
+        NEXTKEY_LOG(L"Startup delay: sleeping %u seconds...", systemConfig.startupDelay);
+        Sleep(static_cast<DWORD>(systemConfig.startupDelay) * 1000);
+    }
 
 #if defined(VKEY_USE_RUST_ENGINE)
     // Repair before HookEngine can cache a failed first load for this process.

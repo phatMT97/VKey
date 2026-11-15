@@ -648,7 +648,18 @@ void ClassicSettingsDialog::PopulateControls() {
                 default:
                     break;
             }
-            ComboBox_SetCurSel(ctrl, static_cast<int>(value));
+            if (wcscmp(meta.id, L"startup-delay") == 0) {
+                int sel = 0;
+                for (size_t v = 0; v < std::size(kStartupDelayValues); ++v) {
+                    if (kStartupDelayValues[v] == value) {
+                        sel = static_cast<int>(v);
+                        break;
+                    }
+                }
+                ComboBox_SetCurSel(ctrl, sel);
+            } else {
+                ComboBox_SetCurSel(ctrl, static_cast<int>(value));
+            }
         }
     }
 
@@ -734,6 +745,11 @@ void ClassicSettingsDialog::ReadControlValues() {
             int sel = ComboBox_GetCurSel(ctrl);
             if (sel >= 0) {
                 uint8_t value = static_cast<uint8_t>(sel);
+                if (wcscmp(meta.id, L"startup-delay") == 0) {
+                    if (static_cast<size_t>(sel) < std::size(kStartupDelayValues)) {
+                        value = kStartupDelayValues[sel];
+                    }
+                }
                 switch (meta.owner) {
                     case SettingOwner::Typing:
                         *reinterpret_cast<uint8_t*>(
@@ -1048,9 +1064,9 @@ void ClassicSettingsDialog::OnCommand(WPARAM wParam, LPARAM lParam) {
                     return;
                 }
 
-                if (meta->type == SettingType::Dropdown && wcscmp(meta->id, L"startup-mode") == 0
+                if (meta->type == SettingType::Dropdown && (wcscmp(meta->id, L"startup-mode") == 0 || wcscmp(meta->id, L"startup-delay") == 0)
                     && code == CBN_SELCHANGE) {
-                    // Startup mode change — immediate save
+                    // Startup mode or delay change — immediate save
                     SaveSettings();
                     KillTimer(hwnd_, kTimerDeferredSave);
                     SaveToToml();

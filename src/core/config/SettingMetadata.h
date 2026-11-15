@@ -60,6 +60,15 @@ inline constexpr const wchar_t* kStartupModeItemsVi[] = {
 inline constexpr const wchar_t* kStartupModeItemsEn[] = {
     L"Vietnamese", L"English", L"Remember", nullptr
 };
+inline constexpr const wchar_t* kStartupDelayItemsVi[] = {
+    L"Không trễ (0s)", L"3 giây", L"5 giây", L"10 giây", L"15 giây", L"30 giây", L"60 giây", nullptr
+};
+inline constexpr const wchar_t* kStartupDelayItemsEn[] = {
+    L"No delay (0s)", L"3 seconds", L"5 seconds", L"10 seconds", L"15 seconds", L"30 seconds", L"60 seconds", nullptr
+};
+inline constexpr uint8_t kStartupDelayValues[] = {
+    0, 3, 5, 10, 15, 30, 60
+};
 // ── Helper macros to reduce verbosity ──────────────────────────────
 // Master macro — every setting kind funnels through here.
 #define NK_SETTING(type_, owner_, cfg, id, field, vi, en, tip, tipE, idc, tab, col, itemsV, itemsE) \
@@ -222,6 +231,11 @@ inline constexpr SettingMeta kSettings[] = {
               L"Chế độ gõ khi khởi động ứng dụng",
               L"Typing mode when app starts",                            2409, 2, 0,
               kStartupModeItemsVi, kStartupModeItemsEn),
+    NK_DROPDOWN("startup-delay",      startupDelay,
+              "Trì hoãn khởi động",   "Startup delay",
+              L"Trì hoãn một khoảng thời gian khi khởi động cùng Windows để tránh xung đột phím với các phần mềm khác",
+              L"Delay startup when running with Windows to prevent hook conflicts with other apps", 2413, 2, 0,
+              kStartupDelayItemsVi, kStartupDelayItemsEn),
     NK_SYSTEM("show-on-startup",      showOnStartup,
               "Bật bảng này khi khởi động", "Show window on startup",
               nullptr, nullptr,                                          2403, 2, 0),

@@ -54,6 +54,10 @@ inline constexpr const wchar_t* WATCHDOG_TASK_FLAG = L"--watchdog-task";
 /// than exit immediately when the old instance still holds it.
 inline constexpr const wchar_t* ADMIN_RESTART_FLAG = L"--admin-restart";
 
+/// Flag passed when VKey is launched automatically at Windows startup/logon
+/// (via HKCU Run registry or Task Scheduler). Allows respecting startup delay.
+inline constexpr const wchar_t* STARTUP_FLAG = L"--startup";
+
 /// Whole-word cmdline flag match: `flag` must be preceded by start-of-string
 /// or whitespace, and followed by whitespace or end-of-string. Guards against
 /// substring matches (e.g. `--admin-restart` false-positive on a future flag
@@ -120,7 +124,7 @@ inline void RemoveRegistryStartup() noexcept {
         return false;
     }
 
-    std::wstring exePath = GetQuotedExePath();
+    std::wstring exePath = GetQuotedExePath() + L" " + STARTUP_FLAG;
 
     // Idempotent: skip the write when the value already matches. Rewriting the
     // same HKCU\Run value on every toggle/launch reads as autorun-key churn to
@@ -197,7 +201,7 @@ inline void RemoveRegistryStartup() noexcept {
     // embedded quotes would become literal path chars → 0x2 "cannot find the
     // file" at logon (task fires but launches nothing). Spaces are handled by
     // Task Scheduler itself. Do NOT wrap exeStr in \" \" (issue #210).
-    ps1Args += L"$A = New-ScheduledTaskAction -Execute '" + EscapePowerShellSingleQuote(exeStr) + L"' -WorkingDirectory '" + EscapePowerShellSingleQuote(dirStr) + L"'; ";
+    ps1Args += L"$A = New-ScheduledTaskAction -Execute '" + EscapePowerShellSingleQuote(exeStr) + L"' -Argument '" + std::wstring(STARTUP_FLAG) + L"' -WorkingDirectory '" + EscapePowerShellSingleQuote(dirStr) + L"'; ";
     ps1Args += L"$T = New-ScheduledTaskTrigger -AtLogOn; ";
     ps1Args += L"$T.Delay = 'PT5S'; ";
     ps1Args += L"$S = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit 0; ";
@@ -752,6 +756,23 @@ inline void SetDesktopShortcut(bool enable) {
     return LaunchViaShellUnelevated(exePath, params)
                ? AdminRestartResult::Restarting
                : AdminRestartResult::DeElevationFailed;
+}
+
+/// Restart the application in place (preserving current elevation level).
+/// Spawns a new instance with ADMIN_RESTART_FLAG so it waits on the
+/// single-instance mutex while this instance terminates cleanly.
+[[nodiscard]] inline bool RestartApp() noexcept {
+    wchar_t exePath[MAX_PATH] = {};
+    if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) == 0) {
+        return false;
+    }
+
+    SHELLEXECUTEINFOW sei = { sizeof(sei) };
+    sei.lpVerb = IsRunningAsAdmin() ? L"runas" : L"open";
+    sei.lpFile = exePath;
+    sei.lpParameters = ADMIN_RESTART_FLAG;
+    sei.nShow = SW_SHOWNORMAL;
+    return ShellExecuteExW(&sei) != FALSE;
 }
 
 }  // namespace NextKey

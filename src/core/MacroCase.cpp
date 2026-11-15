@@ -96,10 +96,14 @@ MacroPlan Plan(const PlanInputs& in, const CaseMapper& mapper) {
 
     // When previousComposition is active without cross-commit, rawMacroBuffer
     // must account for the whole word on screen. A raw buffer strictly shorter
-    // than previousComposition (allowing +1 for quick-start f->ph, j->gi, w->qu)
-    // is an orphan tail inside a larger word, not at a word boundary.
+    // than previousComposition (allowing +2 for combined quick-start f->ph/j->gi/w->qu
+    // and quick-end g->ng/h->nh/k->ch) is an orphan tail inside a larger word,
+    // not at a word boundary.
+    const size_t rawTextLen = (!in.rawMacroBuffer.empty() && in.triggerChar > L' ' && in.rawMacroBuffer.back() == in.triggerChar)
+        ? in.rawMacroBuffer.size() - 1
+        : in.rawMacroBuffer.size();
     const bool isOrphanTail = !in.macroCrossCommit && !in.previousComposition.empty() &&
-        (in.rawMacroBuffer.size() + 1 < in.previousComposition.size());
+        (rawTextLen + 2 < in.previousComposition.size());
 
     // Priority 1: full buffer (raw exact, fall back to lowered)
     auto it = isOrphanTail ? in.macroTable.end() : lookup(in.rawMacroBuffer);

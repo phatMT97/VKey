@@ -236,6 +236,28 @@ TEST(SettingMetadata, MacroTitleCaseIsAChildOfMacroAutoCaps) {
     EXPECT_STREQ(setting->parentId, L"auto-caps-macro");
 }
 
+TEST(SettingMetadata, StartupDelayMetadata) {
+    const SettingMeta* setting = FindSetting(L"startup-delay");
+    ASSERT_NE(setting, nullptr);
+    EXPECT_EQ(setting->type, SettingType::Dropdown);
+    EXPECT_EQ(setting->owner, SettingOwner::System);
+    EXPECT_EQ(setting->win32Id, 2413);
+    EXPECT_EQ(setting->tab, 2);
+    EXPECT_EQ(setting->column, 0);
+    ASSERT_NE(setting->itemsVi, nullptr);
+    ASSERT_NE(setting->itemsEn, nullptr);
+    EXPECT_STREQ(setting->itemsVi[0], L"Không trễ (0s)");
+    EXPECT_STREQ(setting->itemsEn[0], L"No delay (0s)");
+
+    // Verify item count matches kStartupDelayValues count
+    size_t viCount = 0;
+    while (setting->itemsVi[viCount] != nullptr) ++viCount;
+    size_t enCount = 0;
+    while (setting->itemsEn[enCount] != nullptr) ++enCount;
+    EXPECT_EQ(viCount, enCount);
+    EXPECT_EQ(viCount, std::size(kStartupDelayValues));
+}
+
 // ============================================================================
 // ConfigManager Round-Trip Tests (Windows only — needs Windows.h)
 // ============================================================================

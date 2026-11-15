@@ -24,6 +24,7 @@ enum class TrayMenuId : UINT {
     About = 1002,
     Exit = 1003,
     ToggleMode = 1004,
+    Restart = 1005,
     // Code table submenu (1010-1014 = CodeTable enum values + offset)
     CodeTableUnicode = 1010,
     CodeTableTCVN3 = 1011,

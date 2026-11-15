@@ -508,6 +508,8 @@ void TrayIcon::ShowContextMenu() {
     }
 
     AppendMenuW(hMenu, MF_STRING,
+        static_cast<UINT>(TrayMenuId::Restart), S(StringId::MENU_RESTART));
+    AppendMenuW(hMenu, MF_STRING,
         static_cast<UINT>(TrayMenuId::Exit), S(StringId::MENU_EXIT));
 
     POINT pt;
