@@ -180,7 +180,7 @@ inline constexpr SettingMeta kSettings[] = {
               "Tự động viết hoa theo phím", "Auto capitalize macros",
               nullptr, nullptr,                                          2219, 1, 0),
     NK_TYPING_CHILD("macro-undo-backspace", macroUndoOnBackspace,
-              "Khôi phục từ gõ tắt khi nhấn Backspace", "Undo macro on Backspace",
+              "Khôi phục bằng Backspace", "Undo macro on Backspace",
               L"Sau khi bung nội dung gõ tắt, nhấn Backspace sẽ khôi phục lại từ gõ tắt ban đầu",
               L"Pressing Backspace right after macro expansion restores the typed shortcut",
                                                                          2223, 1, 0,

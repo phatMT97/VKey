@@ -702,7 +702,7 @@ void ClassicTheme::DrawCheckbox(HWND hWnd, HDC hdc) {
         SetTextColor(hdc, txtCol);
         SetBkMode(hdc, TRANSPARENT);
         HGDIOBJ oldFont = SelectObject(hdc, fonts_.body);
-        DrawTextW(hdc, text, textLen, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
+        DrawTextW(hdc, text, textLen, &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
         SelectObject(hdc, oldFont);
     }
 }
