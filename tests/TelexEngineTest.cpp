@@ -4597,6 +4597,49 @@ TEST_F(AutoRestoreTest, SeedFromText_UserDefined_ToneEscape_AppendsLiteralAtTail
     EXPECT_EQ(engine.Peek(), L"ban1");
 }
 
+TEST_F(AutoRestoreTest, SeedFromText_UserDefined_CombiningModifierPreferredOverInsert) {
+    // Keymap with w = HornW, ] = HornInsertU.
+    // Combining action (HornW) must be preferred over insert action (HornInsertU)
+    // when retaining base letter, yielding "luwb" instead of "lu]b".
+    TypingConfig config;
+    config.inputMethod = InputMethod::UserDefined;
+    config.spellCheckEnabled = true;
+    config.autoRestoreEnabled = true;
+    config.customKeyMap[L'w'] = TypingAction::HornW;
+    config.customKeyMap[L']'] = TypingAction::HornInsertU;
+
+    TypingEngine seeded(config);
+    ASSERT_TRUE(seeded.SeedFromText(L"lưng"));
+    seeded.Backspace();
+    seeded.Backspace();
+    ASSERT_EQ(seeded.Peek(), L"lư");
+    seeded.PushChar(L'b');
+    ASSERT_EQ(seeded.Peek(), L"lưb");
+    EXPECT_EQ(seeded.Commit(), L"luwb");
+}
+
+TEST_F(AutoRestoreTest, SeedFromText_UserDefined_DirectInsertActionReplacesBase) {
+    // Keymap with q = InsertACircumflex.
+    // Direct insertion action produces modified vowel directly without base 'a'.
+    // Seed "bân" -> Backspace -> Commit returns "bq" (not "baa").
+    TypingConfig config;
+    config.inputMethod = InputMethod::UserDefined;
+    config.spellCheckEnabled = true;
+    config.autoRestoreEnabled = true;
+    config.customKeyMap[L'q'] = TypingAction::InsertACircumflex;
+
+    TypingEngine direct(config);
+    for (wchar_t c : std::wstring(L"bq")) direct.PushChar(c);
+    ASSERT_EQ(direct.Peek(), L"bâ");
+    EXPECT_EQ(direct.Commit(), L"bq");
+
+    TypingEngine seeded(config);
+    ASSERT_TRUE(seeded.SeedFromText(L"bân"));
+    seeded.Backspace();
+    ASSERT_EQ(seeded.Peek(), L"bâ");
+    EXPECT_EQ(seeded.Commit(), L"bq");
+}
+
 // ============================================================================
 // SPELL CHECK EXCLUSION LIST TESTS
 // Prefix-based exclusion: "hđ" in list → "hđ", "hđt" bypass spell check

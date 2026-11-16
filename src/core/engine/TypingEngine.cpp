@@ -2174,7 +2174,7 @@ void TypingEngine::Reset() {
     provisionalYeUppercase_ = 0;
 }
 
-wchar_t TypingEngine::FindUserDefinedModifierKey(wchar_t base, Modifier mod) const {
+wchar_t TypingEngine::FindUserDefinedCombiningModifierKey(wchar_t base, Modifier mod) const {
     switch (mod) {
         case Modifier::Circumflex: {
             TypingAction perVowel = TypingAction::None;
@@ -2189,7 +2189,7 @@ wchar_t TypingEngine::FindUserDefinedModifierKey(wchar_t base, Modifier mod) con
                     return static_cast<wchar_t>(i);
                 }
             }
-            return base;
+            return L'\0';
         }
         case Modifier::Breve: {
             for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
@@ -2199,19 +2199,17 @@ wchar_t TypingEngine::FindUserDefinedModifierKey(wchar_t base, Modifier mod) con
                     return static_cast<wchar_t>(i);
                 }
             }
-            return L'w';
+            return L'\0';
         }
         case Modifier::Horn: {
-            TypingAction bracket = (base == L'o') ? TypingAction::HornInsertO : TypingAction::HornInsertU;
             for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
                 TypingAction act = config_.customKeyMap[i];
                 if (act == TypingAction::VniHorn || act == TypingAction::HornW ||
-                    act == bracket ||
                     act == TypingAction::HornOrInsertU || act == TypingAction::HornOrInsertUNoStart) {
                     return static_cast<wchar_t>(i);
                 }
             }
-            return L'w';
+            return L'\0';
         }
         case Modifier::Stroke: {
             for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
@@ -2220,11 +2218,79 @@ wchar_t TypingEngine::FindUserDefinedModifierKey(wchar_t base, Modifier mod) con
                     return static_cast<wchar_t>(i);
                 }
             }
-            return L'd';
+            return L'\0';
         }
         default:
             return L'\0';
     }
+}
+
+wchar_t TypingEngine::FindUserDefinedInsertKey(wchar_t base, Modifier mod, bool isUpper) const {
+    TypingAction primary = TypingAction::None;
+    TypingAction secondary = TypingAction::None;
+
+    switch (mod) {
+        case Modifier::Circumflex:
+            if (base == L'a') {
+                primary = isUpper ? TypingAction::InsertACircumflexUpper : TypingAction::InsertACircumflex;
+                secondary = isUpper ? TypingAction::InsertACircumflex : TypingAction::InsertACircumflexUpper;
+            } else if (base == L'e') {
+                primary = isUpper ? TypingAction::InsertECircumflexUpper : TypingAction::InsertECircumflex;
+                secondary = isUpper ? TypingAction::InsertECircumflex : TypingAction::InsertECircumflexUpper;
+            } else if (base == L'o') {
+                primary = isUpper ? TypingAction::InsertOCircumflexUpper : TypingAction::InsertOCircumflex;
+                secondary = isUpper ? TypingAction::InsertOCircumflex : TypingAction::InsertOCircumflexUpper;
+            }
+            break;
+        case Modifier::Breve:
+            if (base == L'a') {
+                primary = isUpper ? TypingAction::InsertABreveUpper : TypingAction::InsertABreve;
+                secondary = isUpper ? TypingAction::InsertABreve : TypingAction::InsertABreveUpper;
+            }
+            break;
+        case Modifier::Horn:
+            if (base == L'o') {
+                primary = isUpper ? TypingAction::InsertOHornUpper : TypingAction::InsertOHorn;
+                secondary = isUpper ? TypingAction::InsertOHorn : TypingAction::InsertOHornUpper;
+            } else if (base == L'u') {
+                primary = isUpper ? TypingAction::InsertUHornUpper : TypingAction::InsertUHorn;
+                secondary = isUpper ? TypingAction::InsertUHorn : TypingAction::InsertUHornUpper;
+            }
+            break;
+        case Modifier::Stroke:
+            if (base == L'd') {
+                primary = isUpper ? TypingAction::InsertDStrokeUpper : TypingAction::InsertDStroke;
+                secondary = isUpper ? TypingAction::InsertDStroke : TypingAction::InsertDStrokeUpper;
+            }
+            break;
+        default:
+            break;
+    }
+
+    if (primary != TypingAction::None) {
+        for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
+            if (config_.customKeyMap[i] == primary) {
+                return static_cast<wchar_t>(i);
+            }
+        }
+    }
+    if (secondary != TypingAction::None) {
+        for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
+            if (config_.customKeyMap[i] == secondary) {
+                wchar_t k = static_cast<wchar_t>(i);
+                return isUpper ? std::towupper(k) : std::towlower(k);
+            }
+        }
+    }
+    if (mod == Modifier::Horn) {
+        TypingAction bracket = (base == L'o') ? TypingAction::HornInsertO : TypingAction::HornInsertU;
+        for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
+            if (config_.customKeyMap[i] == bracket) {
+                return static_cast<wchar_t>(i);
+            }
+        }
+    }
+    return L'\0';
 }
 
 wchar_t TypingEngine::FindUserDefinedToneKey(Tone tone) const {
@@ -2293,12 +2359,31 @@ bool TypingEngine::SeedFromText(const std::wstring& text) {
         st.rawIdx = rawInput_.size();
         st.toneRawIdx = SIZE_MAX;
         st.syntheticTone = false;
-        rawInput_.push_back(isUpper ? std::towupper(base) : base);
 
         if (isUserDefined) {
-            wchar_t modKey = FindUserDefinedModifierKey(base, st.mod);
-            if (modKey != L'\0') {
-                rawInput_.push_back(modKey);
+            if (st.mod == Modifier::None) {
+                rawInput_.push_back(isUpper ? std::towupper(base) : base);
+            } else {
+                wchar_t combiningKey = FindUserDefinedCombiningModifierKey(base, st.mod);
+                if (combiningKey != L'\0') {
+                    rawInput_.push_back(isUpper ? std::towupper(base) : base);
+                    rawInput_.push_back(combiningKey);
+                } else {
+                    wchar_t insertKey = FindUserDefinedInsertKey(base, st.mod, isUpper);
+                    if (insertKey != L'\0') {
+                        rawInput_.push_back(insertKey);
+                    } else {
+                        // Fallback: Telex default combining behavior
+                        rawInput_.push_back(isUpper ? std::towupper(base) : base);
+                        switch (st.mod) {
+                            case Modifier::Circumflex: rawInput_.push_back(base); break;
+                            case Modifier::Breve:      rawInput_.push_back(L'w'); break;
+                            case Modifier::Horn:       rawInput_.push_back(L'w'); break;
+                            case Modifier::Stroke:     rawInput_.push_back(L'd'); break;
+                            default: break;
+                        }
+                    }
+                }
             }
             if (st.tone != Tone::None) {
                 st.toneRawIdx = rawInput_.size();
@@ -2309,6 +2394,7 @@ bool TypingEngine::SeedFromText(const std::wstring& text) {
                 }
             }
         } else if (isVni) {
+            rawInput_.push_back(isUpper ? std::towupper(base) : base);
             switch (st.mod) {
                 case Modifier::Circumflex: rawInput_.push_back(L'6'); break;
                 case Modifier::Breve:      rawInput_.push_back(L'8'); break;
@@ -2331,6 +2417,7 @@ bool TypingEngine::SeedFromText(const std::wstring& text) {
                 if (toneKey != L'\0') rawInput_.push_back(toneKey);
             }
         } else if (isTelex) {
+            rawInput_.push_back(isUpper ? std::towupper(base) : base);
             switch (st.mod) {
                 case Modifier::Circumflex: rawInput_.push_back(base); break;
                 case Modifier::Breve:      rawInput_.push_back(L'w'); break;

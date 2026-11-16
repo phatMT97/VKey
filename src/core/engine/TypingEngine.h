@@ -187,7 +187,8 @@ private:
     // `consumedRawIdx` is unusable or tone is synthetic (seeded from text).
     void RestoreConsumedKeyInPlace(size_t consumedRawIdx, wchar_t escapeKey, bool isSynthetic = false);
 
-    [[nodiscard]] wchar_t FindUserDefinedModifierKey(wchar_t base, Modifier mod) const;
+    [[nodiscard]] wchar_t FindUserDefinedCombiningModifierKey(wchar_t base, Modifier mod) const;
+    [[nodiscard]] wchar_t FindUserDefinedInsertKey(wchar_t base, Modifier mod, bool isUpper) const;
     [[nodiscard]] wchar_t FindUserDefinedToneKey(Tone tone) const;
 
     // A tone applied to an `ooo→oo`-escaped literal "oo" is provisional: it only
