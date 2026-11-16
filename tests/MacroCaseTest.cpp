@@ -1025,10 +1025,12 @@ TEST(MacroTailInsideWordTest, QuickStartExpansionIsAllowed) {
 class MacroQuickConsonantTest : public ::testing::TestWithParam<bool> {
 protected:
     void ExpectRawShortcutMatches(bool quickStart, bool quickEnd,
-                                  const wchar_t* raw, const wchar_t* composed) {
+                                  const wchar_t* raw, const wchar_t* composed,
+                                  bool allowZwjf = false) {
         TypingConfig config;
         config.quickStartConsonant = quickStart;
         config.quickEndConsonant = quickEnd;
+        config.allowZwjf = allowZwjf;
         TypingEngine engine(config);
         for (wchar_t ch : std::wstring(raw)) engine.PushChar(ch);
         ASSERT_EQ(engine.Peek(), composed);
@@ -1070,6 +1072,34 @@ TEST_P(MacroQuickConsonantTest, QuickStartAndEndKeepRawShortcut) {
     for (const auto& test : cases) {
         SCOPED_TRACE(::testing::Message() << "raw shortcut: " << test.raw);
         ExpectRawShortcutMatches(true, true, test.raw, test.composed);
+    }
+}
+
+TEST_P(MacroQuickConsonantTest, TelexBracketsWithQuickEndConsonantAllowed) {
+    const struct {
+        const wchar_t* raw;
+        const wchar_t* composed;
+    } cases[] = {
+        {L"[ag", L"ơang"},
+        {L"]ag", L"ưang"},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(::testing::Message() << "raw shortcut: " << test.raw);
+        ExpectRawShortcutMatches(false, true, test.raw, test.composed);
+    }
+}
+
+TEST_P(MacroQuickConsonantTest, ForeignConsonantsKeptWithQuickEndAllowed) {
+    const struct {
+        const wchar_t* raw;
+        const wchar_t* composed;
+    } cases[] = {
+        {L"fag", L"fang"},
+        {L"jag", L"jang"},
+    };
+    for (const auto& test : cases) {
+        SCOPED_TRACE(::testing::Message() << "raw shortcut: " << test.raw);
+        ExpectRawShortcutMatches(false, true, test.raw, test.composed, /*allowZwjf=*/true);
     }
 }
 

@@ -27,52 +27,60 @@ namespace {
 }
 
 // Check if the first character of raw input corresponds to the start of composition,
-// accounting for quick-start consonants (f->ph, j->gi, w->qu/ư), d->đ, and base vowels.
+// accounting for unchanged characters, quick-start consonants (f->ph, j->gi, w->qu/ư),
+// bracket shortcuts ([->ơ, ]->ư), d->đ, and base vowels.
 [[nodiscard]] bool FirstCharMatchesWordStart(wchar_t rawCh, std::wstring_view comp) noexcept {
     if (comp.empty()) return true;
     const wchar_t r = ToLowerVietnamese(rawCh);
     const wchar_t c0 = ToLowerVietnamese(comp[0]);
 
-    // Quick-start consonants: f->ph, j->gi, w->qu
+    // 1. Literal match (character kept unchanged, e.g. f->f or j->j when quick-start is off,
+    // or any consonant / vowel that did not undergo transformation).
+    if (r == c0) return true;
+
+    // 2. Quick-start consonants: f->ph, j->gi, w->qu
     if (r == L'f') return comp.size() >= 2 && c0 == L'p' && ToLowerVietnamese(comp[1]) == L'h';
     if (r == L'j') return comp.size() >= 2 && c0 == L'g' && ToLowerVietnamese(comp[1]) == L'i';
     if (r == L'w') {
         if (comp.size() >= 2 && c0 == L'q' && ToLowerVietnamese(comp[1]) == L'u') return true;
         // Standalone w -> ư in Telex
-        return c0 == L'w' || c0 == L'ư';
+        return c0 == L'ư';
     }
 
-    // d -> d or đ
-    if (r == L'd') return c0 == L'd' || c0 == L'đ';
+    // 3. Bracket shortcuts in Telex: [ -> ơ, ] -> ư
+    if (r == L'[' || r == L'{') return c0 == L'ơ';
+    if (r == L']' || r == L'}') return c0 == L'ư';
 
-    // Vowels: match against base vowel and its modified/toned forms
+    // 4. d -> đ
+    if (r == L'd') return c0 == L'đ';
+
+    // 5. Vowels: match against base vowel and its modified/toned forms
     if (r == L'a') {
-        return c0 == L'a' || c0 == L'à' || c0 == L'á' || c0 == L'ả' || c0 == L'ã' || c0 == L'ạ' ||
+        return c0 == L'à' || c0 == L'á' || c0 == L'ả' || c0 == L'ã' || c0 == L'ạ' ||
                c0 == L'ă' || c0 == L'ằ' || c0 == L'ắ' || c0 == L'ẳ' || c0 == L'ẵ' || c0 == L'ặ' ||
                c0 == L'â' || c0 == L'ầ' || c0 == L'ấ' || c0 == L'ẩ' || c0 == L'ẫ' || c0 == L'ậ';
     }
     if (r == L'e') {
-        return c0 == L'e' || c0 == L'è' || c0 == L'é' || c0 == L'ẻ' || c0 == L'ẽ' || c0 == L'ẹ' ||
+        return c0 == L'è' || c0 == L'é' || c0 == L'ẻ' || c0 == L'ẽ' || c0 == L'ẹ' ||
                c0 == L'ê' || c0 == L'ề' || c0 == L'ế' || c0 == L'ể' || c0 == L'ễ' || c0 == L'ệ';
     }
     if (r == L'i') {
-        return c0 == L'i' || c0 == L'ì' || c0 == L'í' || c0 == L'ỉ' || c0 == L'ĩ' || c0 == L'ị';
+        return c0 == L'ì' || c0 == L'í' || c0 == L'ỉ' || c0 == L'ĩ' || c0 == L'ị';
     }
     if (r == L'o') {
-        return c0 == L'o' || c0 == L'ò' || c0 == L'ó' || c0 == L'ỏ' || c0 == L'õ' || c0 == L'ọ' ||
+        return c0 == L'ò' || c0 == L'ó' || c0 == L'ỏ' || c0 == L'õ' || c0 == L'ọ' ||
                c0 == L'ô' || c0 == L'ồ' || c0 == L'ố' || c0 == L'ổ' || c0 == L'ỗ' || c0 == L'ộ' ||
                c0 == L'ơ' || c0 == L'ờ' || c0 == L'ớ' || c0 == L'ở' || c0 == L'ỡ' || c0 == L'ợ';
     }
     if (r == L'u') {
-        return c0 == L'u' || c0 == L'ù' || c0 == L'ú' || c0 == L'ủ' || c0 == L'ũ' || c0 == L'ụ' ||
+        return c0 == L'ù' || c0 == L'ú' || c0 == L'ủ' || c0 == L'ũ' || c0 == L'ụ' ||
                c0 == L'ư' || c0 == L'ừ' || c0 == L'ứ' || c0 == L'ử' || c0 == L'ữ' || c0 == L'ự';
     }
     if (r == L'y') {
-        return c0 == L'y' || c0 == L'ỳ' || c0 == L'ý' || c0 == L'ỷ' || c0 == L'ỹ' || c0 == L'ỵ';
+        return c0 == L'ỳ' || c0 == L'ý' || c0 == L'ỷ' || c0 == L'ỹ' || c0 == L'ỵ';
     }
 
-    // All other consonants: must match exactly
-    return r == c0;
+    return false;
 }
 
 // Compute the maximum number of characters that raw input could have expanded by

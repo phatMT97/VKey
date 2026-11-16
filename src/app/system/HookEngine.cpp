@@ -1857,11 +1857,6 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
         vkCode >= 0x30 && vkCode <= 0x39 &&
         engine_->Count() > 0) {
         if (!cachedShift) {
-            if (macroEnabled_.load(std::memory_order_acquire) && !rawMacroBuffer_.empty()) {
-                macroUndoSuppressed_ = false;
-                rawMacroBuffer_ += static_cast<wchar_t>(vkCode);
-                if (rawMacroBuffer_.size() > kMaxRawMacroBuffer) ClearMacroBuffer();
-            }
             return HandleVniDigitKey(vkCode) ? KeyOutcome::Eat : KeyOutcome::Pass;
         }
     }
