@@ -4437,6 +4437,14 @@ TEST_F(AutoRestoreTest, StrokeD_Bypass_HD_NoExclusion) {
     EXPECT_EQ(engine_->Commit(), L"hđ");
 }
 
+TEST_F(AutoRestoreTest, StrokeD_HDSD_RemainsLiteralAcronym) {
+    // "hdsd" (hướng dẫn sử dụng) — 'd' at index 1 is not immediately preceding
+    // the second 'd' ('s' intervenes). Should not stroke to "hđs" or "hđsd".
+    TypeString(*engine_, L"hdsd");
+    EXPECT_EQ(engine_->Peek(), L"hdsd");
+    EXPECT_EQ(engine_->Commit(), L"hdsd");
+}
+
 TEST_F(AutoRestoreTest, StrokeD_Bypass_SDT_NoExclusion) {
     // "sddt" → "sđt" — abbreviation for "số điện thoại"
     TypeString(*engine_, L"sddt");

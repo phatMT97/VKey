@@ -251,6 +251,12 @@ template<typename CharStateT>
     }
     if (dIdx == SIZE_MAX) return SIZE_MAX;
 
+    // A non-initial 'd' (dIdx > 0) can only be targeted if it is immediately
+    // preceding the new key (dIdx == count - 1). Delayed stroke-D across
+    // intervening characters is only valid for initial onset 'd' at index 0
+    // (e.g. "doc"+d → "đoc", issue #200 "dm"+d → "đm").
+    if (dIdx > 0 && dIdx != count - 1) return SIZE_MAX;
+
     // For non-initial 'd', scan past contiguous 'd' cluster to find real predecessor.
     // Block if preceded by vowel (prevents "added"→"ađed", "oddly"→"ođly").
     if (dIdx > 0) {
