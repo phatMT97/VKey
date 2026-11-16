@@ -1292,6 +1292,9 @@ LRESULT HookEngine::LowLevelMouseProcImpl(int nCode, WPARAM wParam, LPARAM lPara
                 self->otherKeyPressed_ = true;
                 for (int i = 0; i < kModCount; ++i) self->modTapCount_[i] = 0;
                 self->modComboSeen_ = false;
+                if (self->hotkeyManager_) {
+                    self->hotkeyManager_->ContaminateChord();
+                }
 
                 // REGRESSION TRAP — DO NOT UNCOMMENT (see LowLevelKeyboardProc
                 // above for the full rationale). Mouse path includes a writer

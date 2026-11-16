@@ -159,6 +159,10 @@ void HotkeyManager::ReconcileModifiers(const PhysicalModifierState& physical) no
     otherKeyPressed_ = physical.ctrl || physical.shift || physical.alt || physical.win;
 }
 
+void HotkeyManager::ContaminateChord() noexcept {
+    otherKeyPressed_ = true;
+}
+
 void HotkeyManager::ReconcileLatchedKeysAfterHookReplacement(
         PhysicalKeyDownPredicate isKeyDown,
         const void* context) noexcept {

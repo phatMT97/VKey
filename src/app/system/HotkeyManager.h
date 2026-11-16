@@ -106,6 +106,11 @@ public:
     /// still allowing a following ordinary-key combo to match.
     void ReconcileModifiers(const PhysicalModifierState& physical) noexcept;
 
+    /// Contaminates in-flight modifier chords when an external interaction
+    /// (such as a mouse click or gesture boundary) occurs while modifiers are held,
+    /// preventing modifier-only hotkeys from firing on subsequent key-up.
+    void ContaminateChord() noexcept;
+
     /// Repair non-modifier DOWN/UP latches after the keyboard hook's brief
     /// replacement gap. A latch is cleared only when the supplied physical
     /// snapshot says its key is already up; held keys retain normal repeat/UP

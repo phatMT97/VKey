@@ -154,6 +154,46 @@ TEST(HotkeyManagerTest, ModifierOnlyBindingFiresOnCleanReleaseButNotAfterAnother
     EXPECT_TRUE(contaminatedFires.slots.empty());
 }
 
+TEST(HotkeyManagerTest, ExternalChordContaminationPreventsModifierOnlyTrigger) {
+    DeferredFires fires;
+    auto manager = MakeManager(fires);
+    manager.AddHotkey({.ctrl = true, .shift = true}, [] {});
+    manager.FinalizeBindings();
+
+    manager.Match(Down(kVkLControl, HotkeyManager::ModifierKey::Control));
+    manager.Match(Down(kVkLShift, HotkeyManager::ModifierKey::Shift));
+
+    // Mouse click or external interaction occurs while modifiers held
+    manager.ContaminateChord();
+
+    manager.Match(Up(kVkLShift, HotkeyManager::ModifierKey::Shift));
+    manager.Match(Up(kVkLControl, HotkeyManager::ModifierKey::Control));
+
+    EXPECT_TRUE(fires.slots.empty());
+}
+
+TEST(HotkeyManagerTest, ExternalChordContaminationResetsAfterModifiersReleased) {
+    DeferredFires fires;
+    auto manager = MakeManager(fires);
+    const auto slot = manager.AddHotkey({.ctrl = true, .shift = true}, [] {});
+    manager.FinalizeBindings();
+
+    // 1. Contaminated chord does not fire
+    manager.Match(Down(kVkLControl, HotkeyManager::ModifierKey::Control));
+    manager.Match(Down(kVkLShift, HotkeyManager::ModifierKey::Shift));
+    manager.ContaminateChord();
+    manager.Match(Up(kVkLShift, HotkeyManager::ModifierKey::Shift));
+    manager.Match(Up(kVkLControl, HotkeyManager::ModifierKey::Control));
+    EXPECT_TRUE(fires.slots.empty());
+
+    // 2. Subsequent clean chord fires normally
+    manager.Match(Down(kVkLControl, HotkeyManager::ModifierKey::Control));
+    manager.Match(Down(kVkLShift, HotkeyManager::ModifierKey::Shift));
+    manager.Match(Up(kVkLShift, HotkeyManager::ModifierKey::Shift));
+    manager.Match(Up(kVkLControl, HotkeyManager::ModifierKey::Control));
+    EXPECT_EQ(fires.slots, std::vector<HotkeyManager::SlotId>{slot});
+}
+
 TEST(HotkeyManagerTest, FocusReconcilePreservesHeldModifierChordContamination) {
     constexpr std::uint32_t kVkTab = 0x09;
 
