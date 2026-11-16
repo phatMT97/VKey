@@ -825,6 +825,13 @@ TEST_F(VniParityTest, Seed_LatinOnlyWord_Succeeds) {
     EXPECT_EQ(engine_->Peek(), L"system");
 }
 
+TEST_F(VniParityTest, Seed_IncompleteSyllable_RestoresVniRaw_BanBackspaceToBa6) {
+    ASSERT_TRUE(engine_->SeedFromText(L"bân"));
+    engine_->Backspace();
+    EXPECT_EQ(engine_->Peek(), L"bâ");
+    EXPECT_EQ(engine_->Commit(), L"ba6");
+}
+
 // ============================================================================
 // NUMERIC INTERFERENCE TESTS
 // ============================================================================

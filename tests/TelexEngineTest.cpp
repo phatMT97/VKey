@@ -4513,6 +4513,25 @@ TEST_F(AutoRestoreTest, SeedFromText_UppercasePreserved_Facebook) {
     EXPECT_EQ(engine_->Commit(), L"Facebook");
 }
 
+TEST_F(AutoRestoreTest, SeedFromText_IncompleteSyllable_RestoresRaw_BanBackspaceToBa) {
+    // "bân" seeded (e.g. revive after space + BS), then BS to "bâ", then Commit (space).
+    // In Vietnamese phonology, "bâ" is an incomplete syllable (ValidPrefix) because 'â'
+    // requires a coda. AutoRestore must restore full Telex raw keys "baa", not "ba".
+    ASSERT_TRUE(engine_->SeedFromText(L"bân"));
+    engine_->Backspace();
+    EXPECT_EQ(engine_->Peek(), L"bâ");
+    EXPECT_EQ(engine_->Commit(), L"baa");
+}
+
+TEST_F(AutoRestoreTest, SeedFromText_IncompleteSyllable_RestoresRaw_BanTonedCircumflexToBaas) {
+    // "bấn" seeded, then BS to "bấ", then Commit.
+    // AutoRestore must restore full Telex raw keys "baas", preserving circumflex and tone.
+    ASSERT_TRUE(engine_->SeedFromText(L"bấn"));
+    engine_->Backspace();
+    EXPECT_EQ(engine_->Peek(), L"bấ");
+    EXPECT_EQ(engine_->Commit(), L"baas");
+}
+
 // ============================================================================
 // SPELL CHECK EXCLUSION LIST TESTS
 // Prefix-based exclusion: "hđ" in list → "hđ", "hđt" bypass spell check

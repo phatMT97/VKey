@@ -2167,7 +2167,10 @@ void TypingEngine::Reset() {
 bool TypingEngine::SeedFromText(const std::wstring& text) {
     Reset();
     states_.reserve(text.size());
-    rawInput_.reserve(text.size());
+    rawInput_.reserve(text.size() * 2);
+    const bool isTelex = IsTelexMode() || config_.inputMethod == InputMethod::UserDefined;
+    const bool isVni = (config_.inputMethod == InputMethod::VNI);
+
     for (wchar_t ch : text) {
         wchar_t base = 0;
         int modIdx = -1, toneIdx = -1;
@@ -2194,11 +2197,58 @@ bool TypingEngine::SeedFromText(const std::wstring& text) {
             case 4: st.tone = Tone::Dot; break;
             default: st.tone = Tone::None; break;
         }
-        // Synthetic raw: only the base letter — we don't have original keystrokes.
-        // This is enough for Backspace/PushChar to work correctly after seeding.
+        // Synthetic raw with modifier/tone provenance according to active input method.
+        // This ensures Backspace and subsequent AutoRestore on incomplete syllables
+        // (e.g. "bân" + space → BS BS → "bâ" + space) restore the full raw keystrokes
+        // (e.g. "baa") rather than stripping diacritics into base-only "ba".
         st.rawIdx = rawInput_.size();
         st.toneRawIdx = SIZE_MAX;
         rawInput_.push_back(isUpper ? std::towupper(base) : base);
+
+        if (isTelex) {
+            switch (st.mod) {
+                case Modifier::Circumflex: rawInput_.push_back(base); break;
+                case Modifier::Breve:      rawInput_.push_back(L'w'); break;
+                case Modifier::Horn:       rawInput_.push_back(L'w'); break;
+                case Modifier::Stroke:     rawInput_.push_back(L'd'); break;
+                default: break;
+            }
+            if (st.tone != Tone::None) {
+                st.toneRawIdx = rawInput_.size();
+                wchar_t toneKey = L'\0';
+                switch (st.tone) {
+                    case Tone::Acute: toneKey = L's'; break;
+                    case Tone::Grave: toneKey = L'f'; break;
+                    case Tone::Hook:  toneKey = L'r'; break;
+                    case Tone::Tilde: toneKey = L'x'; break;
+                    case Tone::Dot:   toneKey = L'j'; break;
+                    default: break;
+                }
+                if (toneKey != L'\0') rawInput_.push_back(toneKey);
+            }
+        } else if (isVni) {
+            switch (st.mod) {
+                case Modifier::Circumflex: rawInput_.push_back(L'6'); break;
+                case Modifier::Breve:      rawInput_.push_back(L'8'); break;
+                case Modifier::Horn:       rawInput_.push_back(L'7'); break;
+                case Modifier::Stroke:     rawInput_.push_back(L'9'); break;
+                default: break;
+            }
+            if (st.tone != Tone::None) {
+                st.toneRawIdx = rawInput_.size();
+                wchar_t toneKey = L'\0';
+                switch (st.tone) {
+                    case Tone::Acute: toneKey = L'1'; break;
+                    case Tone::Grave: toneKey = L'2'; break;
+                    case Tone::Hook:  toneKey = L'3'; break;
+                    case Tone::Tilde: toneKey = L'4'; break;
+                    case Tone::Dot:   toneKey = L'5'; break;
+                    default: break;
+                }
+                if (toneKey != L'\0') rawInput_.push_back(toneKey);
+            }
+        }
+
         states_.push_back(st);
     }
     UpdateSpellState();
