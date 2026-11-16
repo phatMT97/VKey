@@ -58,6 +58,7 @@ struct CharState {
     Tone tone = Tone::None;         // Tone mark
     bool isUpper = false;           // Preserve original case
     bool synthetic = false;         // True if created by P8 standalone 'w' (not a real keystroke)
+    bool syntheticTone = false;     // True if tone was synthesized by SeedFromText
     size_t rawIdx = 0;              // rawInput_ index when this state was created (for backspace sync)
     size_t toneRawIdx = SIZE_MAX;   // rawInput_ index of consumed tone key (for escape removal)
 
@@ -183,8 +184,11 @@ private:
     // tone/modifier keystroke occupied, rather than appending it after everything
     // typed since — t-e-r-i-r is "teri", not "teir" (#209). Which character
     // surfaces is unchanged; only its position is. Falls back to appending when
-    // `consumedRawIdx` is unusable.
-    void RestoreConsumedKeyInPlace(size_t consumedRawIdx, wchar_t escapeKey);
+    // `consumedRawIdx` is unusable or tone is synthetic (seeded from text).
+    void RestoreConsumedKeyInPlace(size_t consumedRawIdx, wchar_t escapeKey, bool isSynthetic = false);
+
+    [[nodiscard]] wchar_t FindUserDefinedModifierKey(wchar_t base, Modifier mod) const;
+    [[nodiscard]] wchar_t FindUserDefinedToneKey(Tone tone) const;
 
     // A tone applied to an `ooo→oo`-escaped literal "oo" is provisional: it only
     // commits if the next key is a valid oo-coda start ('c'→ooc, 'n'→oong).

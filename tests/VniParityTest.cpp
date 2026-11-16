@@ -832,6 +832,16 @@ TEST_F(VniParityTest, Seed_IncompleteSyllable_RestoresVniRaw_BanBackspaceToBa6) 
     EXPECT_EQ(engine_->Commit(), L"ba6");
 }
 
+TEST_F(VniParityTest, Seed_ToneEscape_AppendsLiteralAtTail_DoesNotReorder) {
+    // Seed "bánh" in VNI, Backspace to "bán", then type '1'.
+    // Must append '1' at the tail ("ban1"), not reorder before 'n' ("ba1n").
+    ASSERT_TRUE(engine_->SeedFromText(L"bánh"));
+    engine_->Backspace();
+    ASSERT_EQ(engine_->Peek(), L"bán");
+    engine_->PushChar(L'1');
+    EXPECT_EQ(engine_->Peek(), L"ban1");
+}
+
 // ============================================================================
 // NUMERIC INTERFERENCE TESTS
 // ============================================================================

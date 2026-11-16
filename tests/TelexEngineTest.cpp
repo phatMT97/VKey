@@ -4532,6 +4532,71 @@ TEST_F(AutoRestoreTest, SeedFromText_IncompleteSyllable_RestoresRaw_BanTonedCirc
     EXPECT_EQ(engine_->Commit(), L"baas");
 }
 
+TEST_F(AutoRestoreTest, SeedFromText_ToneEscape_AppendsLiteralAtTail_DoesNotReorder) {
+    // Seed "bánh", Backspace to "bán", then type 's'.
+    // Synthetic tone provenance must not reorder the escaping literal before consonants;
+    // it must append at the cursor position producing "bans", not "basn".
+    ASSERT_TRUE(engine_->SeedFromText(L"bánh"));
+    engine_->Backspace();
+    ASSERT_EQ(engine_->Peek(), L"bán");
+    engine_->PushChar(L's');
+    EXPECT_EQ(engine_->Peek(), L"bans");
+}
+
+TEST_F(AutoRestoreTest, FreshInput_ToneEscape_RetainsConsumedTonePosition) {
+    // Verify that genuine live typing retains in-place escape at the consumed position.
+    TypingEngine engine;
+    for (wchar_t c : std::wstring(L"basn")) engine.PushChar(c);
+    EXPECT_EQ(engine.Peek(), L"bán");
+    engine.PushChar(L's');
+    EXPECT_EQ(engine.Peek(), L"basn");
+
+    TypingEngine afterCoda;
+    for (wchar_t c : std::wstring(L"bans")) afterCoda.PushChar(c);
+    EXPECT_EQ(afterCoda.Peek(), L"bán");
+    afterCoda.PushChar(L's');
+    EXPECT_EQ(afterCoda.Peek(), L"bans");
+}
+
+TEST_F(AutoRestoreTest, SeedFromText_UserDefined_UsesConfiguredModifierAndTone) {
+    // UserDefined keymap with 6 = VniCircumflex, 1 = ToneAcute.
+    // Direct input: "ba61" -> "bấ", commit -> "ba61".
+    // Seed "bấn" -> Backspace to "bấ" -> commit -> "ba61" (not "baas").
+    TypingConfig config;
+    config.inputMethod = InputMethod::UserDefined;
+    config.spellCheckEnabled = true;
+    config.autoRestoreEnabled = true;
+    config.customKeyMap[L'6'] = TypingAction::VniCircumflex;
+    config.customKeyMap[L'1'] = TypingAction::ToneAcute;
+
+    TypingEngine direct(config);
+    for (wchar_t c : std::wstring(L"ba61")) direct.PushChar(c);
+    EXPECT_EQ(direct.Peek(), L"bấ");
+    EXPECT_EQ(direct.Commit(), L"ba61");
+
+    TypingEngine seeded(config);
+    ASSERT_TRUE(seeded.SeedFromText(L"bấn"));
+    seeded.Backspace();
+    EXPECT_EQ(seeded.Peek(), L"bấ");
+    EXPECT_EQ(seeded.Commit(), L"ba61");
+}
+
+TEST_F(AutoRestoreTest, SeedFromText_UserDefined_ToneEscape_AppendsLiteralAtTail) {
+    TypingConfig config;
+    config.inputMethod = InputMethod::UserDefined;
+    config.spellCheckEnabled = true;
+    config.autoRestoreEnabled = true;
+    config.customKeyMap[L'6'] = TypingAction::VniCircumflex;
+    config.customKeyMap[L'1'] = TypingAction::ToneAcute;
+
+    TypingEngine engine(config);
+    ASSERT_TRUE(engine.SeedFromText(L"bánh"));
+    engine.Backspace();
+    ASSERT_EQ(engine.Peek(), L"bán");
+    engine.PushChar(L'1');
+    EXPECT_EQ(engine.Peek(), L"ban1");
+}
+
 // ============================================================================
 // SPELL CHECK EXCLUSION LIST TESTS
 // Prefix-based exclusion: "hđ" in list → "hđ", "hđt" bypass spell check

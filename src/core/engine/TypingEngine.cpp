@@ -885,9 +885,11 @@ bool TypingEngine::ProcessTone(Tone newTone, wchar_t keyChar, size_t cachedTarge
     if (target.tone == newTone) {
         target.tone = Tone::None;
         const size_t consumedRawIdx = target.toneRawIdx;
+        const bool isSynthetic = target.syntheticTone;
         target.toneRawIdx = SIZE_MAX;
+        target.syntheticTone = false;
         // Invalidates `target` (states_ may grow) — nothing below reads it.
-        RestoreConsumedKeyInPlace(consumedRawIdx, keyChar);
+        RestoreConsumedKeyInPlace(consumedRawIdx, keyChar, isSynthetic);
         escape_.escape(EscapeKind::Tone);  // Signal caller: user canceled tone
         return true;
     }
@@ -895,6 +897,7 @@ bool TypingEngine::ProcessTone(Tone newTone, wchar_t keyChar, size_t cachedTarge
     // Apply or replace tone
     target.tone = newTone;
     target.toneRawIdx = rawInput_.size() - 1;
+    target.syntheticTone = false;
     escape_.clear();
     return true;
 }
@@ -912,6 +915,7 @@ bool TypingEngine::ProcessClearTone() {
 
     target.tone = Tone::None;
     target.toneRawIdx = SIZE_MAX;
+    target.syntheticTone = false;
     provisionalYeRawCount_ = 0;
     return true;
 }
@@ -1674,10 +1678,10 @@ void TypingEngine::EraseConsumedRaw(size_t idx) {
     }
 }
 
-void TypingEngine::RestoreConsumedKeyInPlace(size_t consumedRawIdx, wchar_t escapeKey) {
-    // No snapshot of the consumed key, or this keypress is not the one sitting at
-    // the tail of rawInput_ — keep the old append-at-end behaviour.
-    if (consumedRawIdx == SIZE_MAX || consumedRawIdx >= rawInput_.size() ||
+void TypingEngine::RestoreConsumedKeyInPlace(size_t consumedRawIdx, wchar_t escapeKey, bool isSynthetic) {
+    // If synthetic provenance, or no snapshot of the consumed key, or this keypress is not the one
+    // sitting at the tail of rawInput_ — keep the append-at-end behaviour.
+    if (isSynthetic || consumedRawIdx == SIZE_MAX || consumedRawIdx >= rawInput_.size() ||
         rawInput_.empty() || towlower(rawInput_.back()) != towlower(escapeKey)) {
         if (consumedRawIdx != SIZE_MAX && consumedRawIdx < rawInput_.size()) {
             EraseConsumedRaw(consumedRawIdx);
@@ -1818,7 +1822,11 @@ void TypingEngine::RelocateToneToHornVowel() {
              states_[tonedIdx].mod == Modifier::Horn) &&
             !HasConsonantBetween(states_.data(), tonedIdx, hornIdx)) {
             states_[hornIdx].tone = states_[tonedIdx].tone;
+            states_[hornIdx].toneRawIdx = states_[tonedIdx].toneRawIdx;
+            states_[hornIdx].syntheticTone = states_[tonedIdx].syntheticTone;
             states_[tonedIdx].tone = Tone::None;
+            states_[tonedIdx].toneRawIdx = SIZE_MAX;
+            states_[tonedIdx].syntheticTone = false;
         }
     }
 }
@@ -1846,8 +1854,10 @@ void TypingEngine::RelocateToneToTarget() {
 
     states_[targetIdx].tone = states_[tonedIdx].tone;
     states_[targetIdx].toneRawIdx = states_[tonedIdx].toneRawIdx;
+    states_[targetIdx].syntheticTone = states_[tonedIdx].syntheticTone;
     states_[tonedIdx].tone = Tone::None;
     states_[tonedIdx].toneRawIdx = SIZE_MAX;
+    states_[tonedIdx].syntheticTone = false;
 }
 
 //-----------------------------------------------------------------------------
@@ -2164,12 +2174,91 @@ void TypingEngine::Reset() {
     provisionalYeUppercase_ = 0;
 }
 
+wchar_t TypingEngine::FindUserDefinedModifierKey(wchar_t base, Modifier mod) const {
+    switch (mod) {
+        case Modifier::Circumflex: {
+            TypingAction perVowel = TypingAction::None;
+            if (base == L'a') perVowel = TypingAction::CircumflexA;
+            else if (base == L'e') perVowel = TypingAction::CircumflexE;
+            else if (base == L'o') perVowel = TypingAction::CircumflexO;
+
+            for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
+                TypingAction act = config_.customKeyMap[i];
+                if (act == TypingAction::VniCircumflex ||
+                    (perVowel != TypingAction::None && act == perVowel)) {
+                    return static_cast<wchar_t>(i);
+                }
+            }
+            return base;
+        }
+        case Modifier::Breve: {
+            for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
+                TypingAction act = config_.customKeyMap[i];
+                if (act == TypingAction::VniBreve || act == TypingAction::HornW ||
+                    act == TypingAction::HornOrInsertU || act == TypingAction::HornOrInsertUNoStart) {
+                    return static_cast<wchar_t>(i);
+                }
+            }
+            return L'w';
+        }
+        case Modifier::Horn: {
+            TypingAction bracket = (base == L'o') ? TypingAction::HornInsertO : TypingAction::HornInsertU;
+            for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
+                TypingAction act = config_.customKeyMap[i];
+                if (act == TypingAction::VniHorn || act == TypingAction::HornW ||
+                    act == bracket ||
+                    act == TypingAction::HornOrInsertU || act == TypingAction::HornOrInsertUNoStart) {
+                    return static_cast<wchar_t>(i);
+                }
+            }
+            return L'w';
+        }
+        case Modifier::Stroke: {
+            for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
+                TypingAction act = config_.customKeyMap[i];
+                if (act == TypingAction::VniStroke || act == TypingAction::StrokeD) {
+                    return static_cast<wchar_t>(i);
+                }
+            }
+            return L'd';
+        }
+        default:
+            return L'\0';
+    }
+}
+
+wchar_t TypingEngine::FindUserDefinedToneKey(Tone tone) const {
+    TypingAction targetAction = TypingAction::None;
+    switch (tone) {
+        case Tone::Acute: targetAction = TypingAction::ToneAcute; break;
+        case Tone::Grave: targetAction = TypingAction::ToneGrave; break;
+        case Tone::Hook:  targetAction = TypingAction::ToneHook; break;
+        case Tone::Tilde: targetAction = TypingAction::ToneTilde; break;
+        case Tone::Dot:   targetAction = TypingAction::ToneDot; break;
+        default: return L'\0';
+    }
+    for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
+        if (config_.customKeyMap[i] == targetAction) {
+            return static_cast<wchar_t>(i);
+        }
+    }
+    switch (tone) {
+        case Tone::Acute: return L's';
+        case Tone::Grave: return L'f';
+        case Tone::Hook:  return L'r';
+        case Tone::Tilde: return L'x';
+        case Tone::Dot:   return L'j';
+        default: return L'\0';
+    }
+}
+
 bool TypingEngine::SeedFromText(const std::wstring& text) {
     Reset();
     states_.reserve(text.size());
     rawInput_.reserve(text.size() * 2);
-    const bool isTelex = IsTelexMode() || config_.inputMethod == InputMethod::UserDefined;
+    const bool isUserDefined = (config_.inputMethod == InputMethod::UserDefined);
     const bool isVni = (config_.inputMethod == InputMethod::VNI);
+    const bool isTelex = IsTelexMode();
 
     for (wchar_t ch : text) {
         wchar_t base = 0;
@@ -2203,28 +2292,21 @@ bool TypingEngine::SeedFromText(const std::wstring& text) {
         // (e.g. "baa") rather than stripping diacritics into base-only "ba".
         st.rawIdx = rawInput_.size();
         st.toneRawIdx = SIZE_MAX;
+        st.syntheticTone = false;
         rawInput_.push_back(isUpper ? std::towupper(base) : base);
 
-        if (isTelex) {
-            switch (st.mod) {
-                case Modifier::Circumflex: rawInput_.push_back(base); break;
-                case Modifier::Breve:      rawInput_.push_back(L'w'); break;
-                case Modifier::Horn:       rawInput_.push_back(L'w'); break;
-                case Modifier::Stroke:     rawInput_.push_back(L'd'); break;
-                default: break;
+        if (isUserDefined) {
+            wchar_t modKey = FindUserDefinedModifierKey(base, st.mod);
+            if (modKey != L'\0') {
+                rawInput_.push_back(modKey);
             }
             if (st.tone != Tone::None) {
                 st.toneRawIdx = rawInput_.size();
-                wchar_t toneKey = L'\0';
-                switch (st.tone) {
-                    case Tone::Acute: toneKey = L's'; break;
-                    case Tone::Grave: toneKey = L'f'; break;
-                    case Tone::Hook:  toneKey = L'r'; break;
-                    case Tone::Tilde: toneKey = L'x'; break;
-                    case Tone::Dot:   toneKey = L'j'; break;
-                    default: break;
+                st.syntheticTone = true;
+                wchar_t toneKey = FindUserDefinedToneKey(st.tone);
+                if (toneKey != L'\0') {
+                    rawInput_.push_back(toneKey);
                 }
-                if (toneKey != L'\0') rawInput_.push_back(toneKey);
             }
         } else if (isVni) {
             switch (st.mod) {
@@ -2236,6 +2318,7 @@ bool TypingEngine::SeedFromText(const std::wstring& text) {
             }
             if (st.tone != Tone::None) {
                 st.toneRawIdx = rawInput_.size();
+                st.syntheticTone = true;
                 wchar_t toneKey = L'\0';
                 switch (st.tone) {
                     case Tone::Acute: toneKey = L'1'; break;
@@ -2243,6 +2326,28 @@ bool TypingEngine::SeedFromText(const std::wstring& text) {
                     case Tone::Hook:  toneKey = L'3'; break;
                     case Tone::Tilde: toneKey = L'4'; break;
                     case Tone::Dot:   toneKey = L'5'; break;
+                    default: break;
+                }
+                if (toneKey != L'\0') rawInput_.push_back(toneKey);
+            }
+        } else if (isTelex) {
+            switch (st.mod) {
+                case Modifier::Circumflex: rawInput_.push_back(base); break;
+                case Modifier::Breve:      rawInput_.push_back(L'w'); break;
+                case Modifier::Horn:       rawInput_.push_back(L'w'); break;
+                case Modifier::Stroke:     rawInput_.push_back(L'd'); break;
+                default: break;
+            }
+            if (st.tone != Tone::None) {
+                st.toneRawIdx = rawInput_.size();
+                st.syntheticTone = true;
+                wchar_t toneKey = L'\0';
+                switch (st.tone) {
+                    case Tone::Acute: toneKey = L's'; break;
+                    case Tone::Grave: toneKey = L'f'; break;
+                    case Tone::Hook:  toneKey = L'r'; break;
+                    case Tone::Tilde: toneKey = L'x'; break;
+                    case Tone::Dot:   toneKey = L'j'; break;
                     default: break;
                 }
                 if (toneKey != L'\0') rawInput_.push_back(toneKey);
