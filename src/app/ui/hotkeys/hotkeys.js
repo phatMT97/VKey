@@ -182,7 +182,7 @@ function getIntentLabel(intent) {
     var en = {
         "cancel-composition": "Cancel composition",
         "skip-macro":         "Skip macro",
-        "toggle-enabled":     "Toggle IME state",
+        "toggle-enabled":     "Temporarily disable IME",
         "toggle-game-mode":   "Toggle game mode for current app"
     }[intent] || vi;
     return { vi: vi, en: en };

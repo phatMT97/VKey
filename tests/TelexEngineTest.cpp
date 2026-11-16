@@ -3772,6 +3772,15 @@ TEST_F(AutoRestoreTest, InvalidWord_ReturnsRaw) {
     EXPECT_EQ(engine_->Commit(), L"basl");
 }
 
+TEST_F(AutoRestoreTest, Bienr_InvalidWord_PeekIsComposed_CommitReturnsRaw) {
+    // "bienr" (b-i-e-r-n) → engine composes "biẻn" on screen, but syllable is
+    // phonotactically invalid without circumflex ê, so Commit() auto-restores to "bienr".
+    // Verbatim commit (e.g. temp-off toggle) uses Peek() to lock the on-screen text (#282).
+    TypeString(*engine_, L"bienr");
+    EXPECT_EQ(engine_->Peek(), L"biẻn");
+    EXPECT_EQ(engine_->Commit(), L"bienr");
+}
+
 TEST_F(AutoRestoreTest, ValidWord_ReturnsComposed) {
     // "bas" → "bá" is valid Vietnamese → return composed
     TypeString(*engine_, L"bas");

@@ -508,13 +508,14 @@ void HookEngine::ToggleVietnameseMode() noexcept {
 
 void HookEngine::SetCodeTable(CodeTable ct) {
     std::lock_guard<std::mutex> _lock(stateMutex_);
-    // Commit any pending composition before switching
-    if (ct != currentCodeTable_.load(std::memory_order_acquire) && engine_->Count() > 0) {
-        CommitComposition(true);
+    // Commit any pending composition and clear undo stack before switching
+    if (ct != currentCodeTable_.load(std::memory_order_acquire)) {
+        if (engine_->Count() > 0) {
+            CommitComposition(CommitMode::Verbatim);
+        }
+        CancelCommitUndo();
+        currentCodeTable_.store(ct, std::memory_order_release);
     }
-
-    currentCodeTable_.store(ct, std::memory_order_release);
-
 }
 
 CodeTable HookEngine::GetCodeTable() const noexcept {
@@ -1704,7 +1705,7 @@ HookEngine::KeyOutcome HookEngine::HandlePreDispatch(DWORD vkCode, bool vnMode,
     if (!IsModifierKey(CanonicalModifierVk(vkCode))
         && hotkeysSnap->Matches(Intent::ToggleEnabled, vkCode, currentMods,
                                  /*isDoubleTap=*/false, /*keyUp=*/false)) {
-        if (engine_->Count() > 0) CommitComposition(true);
+        if (engine_->Count() > 0) CommitComposition(CommitMode::Verbatim);
         tempEngineOff_ = !tempEngineOff_;
         CancelCommitUndo();
         HOOK_LOG(L"  TOGGLE-DOWN (vk=0x%02X mods=0x%02X): tempEngineOff_=%d",
@@ -1962,8 +1963,9 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
             }
         }
 
+        const bool dropLexicon = Macro::IsVerbatimCommitTrigger(VkToMacroChar(vkCode));
         bool restored = CommitComposition(
-            Macro::IsVerbatimCommitTrigger(VkToMacroChar(vkCode)));
+            dropLexicon ? CommitMode::NoLexicon : CommitMode::Normal);
 
         if (IsCaretNavigationKey(vkCode) && engine_) {
             engine_->ClearContext();
@@ -2108,7 +2110,7 @@ bool HookEngine::ProcessKeyUp(DWORD vkCode, DWORD /*flags*/) {
 
         auto fireToggleEnabled = [&](const wchar_t* reason) {
             if (engine_->Count() > 0) {
-                CommitComposition(true);
+                CommitComposition(CommitMode::Verbatim);
             }
             tempEngineOff_ = !tempEngineOff_;
             // Clear commit-undo state on both enable and disable: modifier-only
@@ -2479,9 +2481,10 @@ void HookEngine::HandleBackspace() {
     }
 }
 
-bool HookEngine::CommitComposition(bool verbatim) {
+bool HookEngine::CommitComposition(CommitMode mode) {
     VKEY_ASSERT_HOOK_THREAD();
-    HOOK_LOG(L"  CommitComposition (count=%zu, prev='%s')", engine_->Count(), previousComposition_.c_str());
+    HOOK_LOG(L"  CommitComposition (count=%zu, prev='%s', mode=%d)",
+             engine_->Count(), previousComposition_.c_str(), static_cast<int>(mode));
 
     // Check quick consonant BEFORE Commit() resets the engine.
     // Words ending in active quick consonant (e.g., rienn→rieng) are excluded
@@ -2493,18 +2496,24 @@ bool HookEngine::CommitComposition(bool verbatim) {
     // Snapshot lives in CommitEntry.rawInput for post-BS ESC restore.
     std::wstring rawSnapshot = engine_->PeekRaw();
     // Uncorrected commit == the engine's rendered text; Commit() clears it.
-    std::wstring rendered = verbatim ? engine_->Peek() : std::wstring{};
+    std::wstring rendered = (mode != CommitMode::Normal) ? engine_->Peek() : std::wstring{};
 
     std::wstring committed = engine_->Commit();
-    if (engine_->LastCommitWasCorrected()) {
-        HOOK_LOG(L"  CommitComposition: lexicon-corrected, text='%s' verbatim=%d",
-                 committed.c_str(), verbatim ? 1 : 0);
-        if (verbatim) committed = std::move(rendered);
+    if (mode == CommitMode::Verbatim) {
+        HOOK_LOG(L"  CommitComposition: verbatim lock, text='%s' (discarded '%s')",
+                 rendered.c_str(), committed.c_str());
+        committed = std::move(rendered);
+    } else if (mode == CommitMode::NoLexicon && engine_->LastCommitWasCorrected()) {
+        HOOK_LOG(L"  CommitComposition: lexicon-corrected, text='%s' (NoLexicon)",
+                 committed.c_str());
+        committed = std::move(rendered);
     }
 
     bool restored = false;
     // Auto-restore: if Commit() returned different text than what's on screen,
-    // replace the displayed text (e.g., "gôgle" → "google")
+    // replace the displayed text (e.g., "gôgle" → "google").
+    // Under CommitMode::Verbatim, committed == rendered == previousComposition_,
+    // so AutoRestore never fires.
     if (!previousComposition_.empty() && committed != previousComposition_) {
         HOOK_LOG(L"  AutoRestore: '%s' → '%s'", previousComposition_.c_str(), committed.c_str());
         DispatchCoordinator(0, 0, committed);
@@ -2512,7 +2521,7 @@ bool HookEngine::CommitComposition(bool verbatim) {
     }
 
     // Push to commit stack for multi-word backward replay.
-    // Skip if: quick consonant active, or empty history.
+    // Skip if: verbatim lock, quick consonant active, or empty history.
     // AutoRestore commits ARE pushed (with text=committed to match screen) so BS
     // can revive Vietnamese composition — user typing 'gõt'+SPACE → AutoRestore
     // 'goxt' was previously a dead-end (engine state discarded, raw BS bypassed
@@ -2521,7 +2530,9 @@ bool HookEngine::CommitComposition(bool verbatim) {
     // into broken Vietnamese state; user can ESC restore-raw or keep BS to
     // recover. Net: Vietnamese intent (the common case) now works correctly.
     commitState_.SetPushedToStack(false);
-    if (!wasQuickConsonant && !commitState_.History().empty()) {
+    if (mode == CommitMode::Verbatim) {
+        CancelCommitUndo();
+    } else if (!wasQuickConsonant && !commitState_.History().empty()) {
         CommitEntry entry;
         entry.history = commitState_.History();
         if (restored) {
@@ -4083,7 +4094,7 @@ void HookEngine::ApplyToggleVNOnHookThread() {
 
     // Commit pending composition (skip if CJK-suppressed — engine inactive).
     if (!focus_.LayoutSuppressed() && engine_->Count() > 0) {
-        CommitComposition(true);
+        CommitComposition(CommitMode::Verbatim);
     }
     CancelCommitUndo();
     digitLedWord_ = false;
@@ -4285,7 +4296,8 @@ void HookEngine::RefreshBrowserRouteOnHookThread(bool forceRead, bool notifyCall
         && vietnameseMode_.load(std::memory_order_acquire) != (modeTarget != 0);
     if (!routeChanged && !modeChanged) return;
 
-    if (engine_ && engine_->Count() > 0) CommitComposition(true);
+    if (engine_ && engine_->Count() > 0) CommitComposition(CommitMode::Verbatim);
+    CancelCommitUndo();
     if (modeChanged) {
         vietnameseMode_.store(modeTarget != 0, std::memory_order_release);
     }

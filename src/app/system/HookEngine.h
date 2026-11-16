@@ -387,9 +387,16 @@ private:
     [[nodiscard]] bool HandleAlphaKey(DWORD vkCode, bool shift, bool capsLock);
     [[nodiscard]] bool HandleVniDigitKey(DWORD vkCode); // VNI/UserDefined digit 0-9: push to engine, replace composition
     void HandleBackspace();
-    // Returns true if auto-restore changed text. `verbatim` drops a lexicon
-    // correction (IsVerbatimCommitTrigger); raw restore still applies.
-    bool CommitComposition(bool verbatim = false);
+    enum class CommitMode {
+        Normal,     // Auto-restore + lexicon correction
+        NoLexicon,  // Drop lexicon correction only (token-glued trigger)
+        Verbatim,   // Lock on-screen text as-is: drop both auto-restore and lexicon correction
+    };
+    // Returns true if auto-restore changed text.
+    // - Normal: auto-restore + lexicon correction both active.
+    // - NoLexicon: drops lexicon correction (token-glued trigger), auto-restore still applies.
+    // - Verbatim: commits on-screen text verbatim without modification (toggle, switch code table, temp-off).
+    bool CommitComposition(CommitMode mode = CommitMode::Normal);
     void ResetComposition();
     // Commit-undo mutators (HookEngineCommitUndo.cpp)
     void CancelCommitUndo();   // commitState_.Cancel()
