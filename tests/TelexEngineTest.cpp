@@ -4728,6 +4728,77 @@ TEST_F(AutoRestoreTest, SeedFromText_UserDefined_FixedCaseInsertionUsesItsConfig
     }
 }
 
+TEST_F(AutoRestoreTest, SeedFromText_UserDefined_SkipCaselessTriggerWhenUppercaseAlternativeExists) {
+    // When a caseless key (e.g. ';' or '0') precedes a case-encoding key (e.g. ']')
+    // in customKeyMap for HornInsertU, uppercase reconstruction must skip the
+    // caseless key (which cannot encode uppercase intent) and pick the bracket key '}'.
+    for (wchar_t key : std::wstring(L";0")) {
+        for (bool upper : {false, true}) {
+            SCOPED_TRACE(::testing::Message() << "key=" << static_cast<int>(key) << " upper=" << upper);
+            TypingConfig config;
+            config.inputMethod = InputMethod::UserDefined;
+            config.spellCheckEnabled = true;
+            config.autoRestoreEnabled = true;
+            config.customKeyMap[static_cast<size_t>(key)] = TypingAction::HornInsertU;
+            config.customKeyMap[L']'] = TypingAction::HornInsertU;
+
+            const std::wstring rendered = upper ? L"lƯb" : L"lưb";
+            const std::wstring raw = upper ? L"l}b" : std::wstring(L"l") + key + L'b';
+
+            TypingEngine direct(config);
+            for (wchar_t c : raw) direct.PushChar(c);
+            ASSERT_EQ(direct.Peek(), rendered);
+            EXPECT_EQ(direct.Commit(), raw);
+
+            TypingEngine seeded(config);
+            ASSERT_TRUE(seeded.SeedFromText(upper ? L"lƯng" : L"lưng"));
+            seeded.Backspace();
+            seeded.Backspace();
+            seeded.PushChar(L'b');
+            ASSERT_EQ(seeded.Peek(), rendered);
+            const std::wstring restored = seeded.Commit();
+            EXPECT_EQ(restored, raw);
+
+            TypingEngine replay(config);
+            for (wchar_t c : restored) replay.PushChar(c);
+            EXPECT_EQ(replay.Peek(), rendered);
+        }
+    }
+}
+
+TEST_F(AutoRestoreTest, SeedFromText_UserDefined_AlphabeticHornInsertRetainsCase) {
+    // When HornInsertU is mapped to an alphabetic key (e.g. 'q'),
+    // reconstruction uses 'q' for lowercase and 'Q' for uppercase.
+    for (bool upper : {false, true}) {
+        SCOPED_TRACE(upper);
+        TypingConfig config;
+        config.inputMethod = InputMethod::UserDefined;
+        config.spellCheckEnabled = true;
+        config.autoRestoreEnabled = true;
+        config.customKeyMap[L'q'] = TypingAction::HornInsertU;
+
+        const std::wstring raw = upper ? L"lQb" : L"lqb";
+        const std::wstring rendered = upper ? L"lƯb" : L"lưb";
+
+        TypingEngine direct(config);
+        for (wchar_t c : raw) direct.PushChar(c);
+        ASSERT_EQ(direct.Peek(), rendered);
+        EXPECT_EQ(direct.Commit(), raw);
+
+        TypingEngine seeded(config);
+        ASSERT_TRUE(seeded.SeedFromText(upper ? L"lƯng" : L"lưng"));
+        seeded.Backspace();
+        seeded.Backspace();
+        seeded.PushChar(L'b');
+        const std::wstring restored = seeded.Commit();
+        EXPECT_EQ(restored, raw);
+
+        TypingEngine replay(config);
+        for (wchar_t c : restored) replay.PushChar(c);
+        EXPECT_EQ(replay.Peek(), rendered);
+    }
+}
+
 // ============================================================================
 // SPELL CHECK EXCLUSION LIST TESTS
 // Prefix-based exclusion: "hđ" in list → "hđ", "hđt" bypass spell check

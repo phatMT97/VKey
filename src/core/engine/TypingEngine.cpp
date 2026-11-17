@@ -2274,9 +2274,20 @@ wchar_t TypingEngine::FindUserDefinedInsertKey(wchar_t base, Modifier mod, bool 
         for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
             if (config_.customKeyMap[i] == bracket) {
                 wchar_t key = static_cast<wchar_t>(i);
-                if (key == L'[' || key == L'{') return isUpper ? L'{' : L'[';
-                if (key == L']' || key == L'}') return isUpper ? L'}' : L']';
-                return isUpper ? std::towupper(key) : std::towlower(key);
+                wchar_t candidate = L'\0';
+                if (key == L'[' || key == L'{') {
+                    candidate = isUpper ? L'{' : L'[';
+                } else if (key == L']' || key == L'}') {
+                    candidate = isUpper ? L'}' : L']';
+                } else {
+                    candidate = isUpper ? std::towupper(key) : std::towlower(key);
+                }
+
+                // Verify candidate actually encodes the requested case
+                const bool encodesUpper = std::iswupper(candidate) || candidate == L'{' || candidate == L'}';
+                if (isUpper == encodesUpper) {
+                    return candidate;
+                }
             }
         }
     }
