@@ -4640,6 +4640,94 @@ TEST_F(AutoRestoreTest, SeedFromText_UserDefined_DirectInsertActionReplacesBase)
     EXPECT_EQ(seeded.Commit(), L"bq");
 }
 
+TEST_F(AutoRestoreTest, SeedFromText_UserDefined_BracketInsertionPreservesCase) {
+    // Bracket insertion (HornInsertO/U) must preserve letter case:
+    // lowercase ']' -> "l]b" for "lưb", uppercase '}' -> "l}b" for "lƯb".
+    for (bool upper : {false, true}) {
+        SCOPED_TRACE(upper);
+        TypingConfig config;
+        config.inputMethod = InputMethod::UserDefined;
+        config.spellCheckEnabled = true;
+        config.autoRestoreEnabled = true;
+        config.customKeyMap[L']'] = TypingAction::HornInsertU;
+
+        const std::wstring raw = upper ? L"l}b" : L"l]b";
+        const std::wstring rendered = upper ? L"lƯb" : L"lưb";
+
+        TypingEngine direct(config);
+        for (wchar_t c : raw) direct.PushChar(c);
+        ASSERT_EQ(direct.Peek(), rendered);
+        EXPECT_EQ(direct.Commit(), raw);
+
+        TypingEngine seeded(config);
+        ASSERT_TRUE(seeded.SeedFromText(upper ? L"lƯng" : L"lưng"));
+        seeded.Backspace();
+        seeded.Backspace();
+        seeded.PushChar(L'b');
+        ASSERT_EQ(seeded.Peek(), rendered);
+        const std::wstring restored = seeded.Commit();
+        EXPECT_EQ(restored, raw);
+
+        TypingEngine replay(config);
+        for (wchar_t c : restored) replay.PushChar(c);
+        EXPECT_EQ(replay.Peek(), rendered);
+    }
+}
+
+TEST_F(AutoRestoreTest, SeedFromText_UserDefined_MatchingCaseBracketBeatsOppositeFixedCaseAction) {
+    // When both InsertUHorn (lowercase-only) and HornInsertU (bracket) are mapped,
+    // reconstructing uppercase Ư must select matching-case bracket '}' rather than
+    // opposite-case fixed action 'Q' (which would replay as lowercase ư).
+    TypingConfig config;
+    config.inputMethod = InputMethod::UserDefined;
+    config.spellCheckEnabled = true;
+    config.autoRestoreEnabled = true;
+    config.customKeyMap[L'q'] = TypingAction::InsertUHorn;
+    config.customKeyMap[L']'] = TypingAction::HornInsertU;
+
+    TypingEngine direct(config);
+    for (wchar_t c : std::wstring(L"l}b")) direct.PushChar(c);
+    ASSERT_EQ(direct.Peek(), L"lƯb");
+    EXPECT_EQ(direct.Commit(), L"l}b");
+
+    TypingEngine seeded(config);
+    ASSERT_TRUE(seeded.SeedFromText(L"lƯng"));
+    seeded.Backspace();
+    seeded.Backspace();
+    seeded.PushChar(L'b');
+    ASSERT_EQ(seeded.Peek(), L"lƯb");
+    const std::wstring restored = seeded.Commit();
+    EXPECT_EQ(restored, L"l}b");
+
+    TypingEngine replay(config);
+    for (wchar_t c : restored) replay.PushChar(c);
+    EXPECT_EQ(replay.Peek(), L"lƯb");
+}
+
+TEST_F(AutoRestoreTest, SeedFromText_UserDefined_FixedCaseInsertionUsesItsConfiguredCase) {
+    // Fixed-case insertion actions (e.g. InsertACircumflex / InsertACircumflexUpper)
+    // should match only when the configured case matches the seeded character.
+    for (bool upper : {false, true}) {
+        SCOPED_TRACE(upper);
+        TypingConfig config;
+        config.inputMethod = InputMethod::UserDefined;
+        config.spellCheckEnabled = true;
+        config.autoRestoreEnabled = true;
+        config.customKeyMap[L'q'] = upper ? TypingAction::InsertACircumflexUpper
+                                          : TypingAction::InsertACircumflex;
+
+        TypingEngine direct(config);
+        for (wchar_t c : std::wstring(L"bq")) direct.PushChar(c);
+        ASSERT_EQ(direct.Peek(), upper ? L"bÂ" : L"bâ");
+        EXPECT_EQ(direct.Commit(), L"bq");
+
+        TypingEngine seeded(config);
+        ASSERT_TRUE(seeded.SeedFromText(upper ? L"bÂn" : L"bân"));
+        seeded.Backspace();
+        EXPECT_EQ(seeded.Commit(), L"bq");
+    }
+}
+
 // ============================================================================
 // SPELL CHECK EXCLUSION LIST TESTS
 // Prefix-based exclusion: "hđ" in list → "hđ", "hđt" bypass spell check

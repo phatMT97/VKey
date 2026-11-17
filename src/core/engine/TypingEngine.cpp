@@ -2226,70 +2226,61 @@ wchar_t TypingEngine::FindUserDefinedCombiningModifierKey(wchar_t base, Modifier
 }
 
 wchar_t TypingEngine::FindUserDefinedInsertKey(wchar_t base, Modifier mod, bool isUpper) const {
-    TypingAction primary = TypingAction::None;
-    TypingAction secondary = TypingAction::None;
+    TypingAction targetAction = TypingAction::None;
 
     switch (mod) {
         case Modifier::Circumflex:
             if (base == L'a') {
-                primary = isUpper ? TypingAction::InsertACircumflexUpper : TypingAction::InsertACircumflex;
-                secondary = isUpper ? TypingAction::InsertACircumflex : TypingAction::InsertACircumflexUpper;
+                targetAction = isUpper ? TypingAction::InsertACircumflexUpper : TypingAction::InsertACircumflex;
             } else if (base == L'e') {
-                primary = isUpper ? TypingAction::InsertECircumflexUpper : TypingAction::InsertECircumflex;
-                secondary = isUpper ? TypingAction::InsertECircumflex : TypingAction::InsertECircumflexUpper;
+                targetAction = isUpper ? TypingAction::InsertECircumflexUpper : TypingAction::InsertECircumflex;
             } else if (base == L'o') {
-                primary = isUpper ? TypingAction::InsertOCircumflexUpper : TypingAction::InsertOCircumflex;
-                secondary = isUpper ? TypingAction::InsertOCircumflex : TypingAction::InsertOCircumflexUpper;
+                targetAction = isUpper ? TypingAction::InsertOCircumflexUpper : TypingAction::InsertOCircumflex;
             }
             break;
         case Modifier::Breve:
             if (base == L'a') {
-                primary = isUpper ? TypingAction::InsertABreveUpper : TypingAction::InsertABreve;
-                secondary = isUpper ? TypingAction::InsertABreve : TypingAction::InsertABreveUpper;
+                targetAction = isUpper ? TypingAction::InsertABreveUpper : TypingAction::InsertABreve;
             }
             break;
         case Modifier::Horn:
             if (base == L'o') {
-                primary = isUpper ? TypingAction::InsertOHornUpper : TypingAction::InsertOHorn;
-                secondary = isUpper ? TypingAction::InsertOHorn : TypingAction::InsertOHornUpper;
+                targetAction = isUpper ? TypingAction::InsertOHornUpper : TypingAction::InsertOHorn;
             } else if (base == L'u') {
-                primary = isUpper ? TypingAction::InsertUHornUpper : TypingAction::InsertUHorn;
-                secondary = isUpper ? TypingAction::InsertUHorn : TypingAction::InsertUHornUpper;
+                targetAction = isUpper ? TypingAction::InsertUHornUpper : TypingAction::InsertUHorn;
             }
             break;
         case Modifier::Stroke:
             if (base == L'd') {
-                primary = isUpper ? TypingAction::InsertDStrokeUpper : TypingAction::InsertDStroke;
-                secondary = isUpper ? TypingAction::InsertDStroke : TypingAction::InsertDStrokeUpper;
+                targetAction = isUpper ? TypingAction::InsertDStrokeUpper : TypingAction::InsertDStroke;
             }
             break;
         default:
             break;
     }
 
-    if (primary != TypingAction::None) {
+    // 1. Check fixed-case direct insertion action matching the requested case
+    if (targetAction != TypingAction::None) {
         for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
-            if (config_.customKeyMap[i] == primary) {
+            if (config_.customKeyMap[i] == targetAction) {
                 return static_cast<wchar_t>(i);
             }
         }
     }
-    if (secondary != TypingAction::None) {
-        for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
-            if (config_.customKeyMap[i] == secondary) {
-                wchar_t k = static_cast<wchar_t>(i);
-                return isUpper ? std::towupper(k) : std::towlower(k);
-            }
-        }
-    }
+
+    // 2. Check case-sensitive HornInsert actions (HornInsertO/U)
     if (mod == Modifier::Horn) {
         TypingAction bracket = (base == L'o') ? TypingAction::HornInsertO : TypingAction::HornInsertU;
         for (size_t i = 0; i < config_.customKeyMap.size(); ++i) {
             if (config_.customKeyMap[i] == bracket) {
-                return static_cast<wchar_t>(i);
+                wchar_t key = static_cast<wchar_t>(i);
+                if (key == L'[' || key == L'{') return isUpper ? L'{' : L'[';
+                if (key == L']' || key == L'}') return isUpper ? L'}' : L']';
+                return isUpper ? std::towupper(key) : std::towlower(key);
             }
         }
     }
+
     return L'\0';
 }
 
