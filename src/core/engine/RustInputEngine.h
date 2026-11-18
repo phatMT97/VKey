@@ -68,6 +68,8 @@ public:
     [[nodiscard]] std::wstring Commit() override;
     void Reset() override;
     void ClearContext() noexcept override;
+    void SetPrecedingBoundary(wchar_t boundary) override;
+    [[nodiscard]] wchar_t PrecedingBoundary() const override;
     [[nodiscard]] size_t Count() const override { return count_; }
     [[nodiscard]] bool HasActiveQuickConsonant() const override;
     [[nodiscard]] bool SeedFromText(const std::wstring& text) override;

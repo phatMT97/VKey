@@ -692,6 +692,7 @@ void EngineController::Commit(ITfContext* pContext) {
 
     // Reset engine state AFTER the edit session completes (synchronous)
     engine_->Reset();
+    engine_->SetPrecedingBoundary(L'\0');
     digitLedWord_ = false;
     ClearMacroTracking();
 
@@ -729,6 +730,11 @@ void EngineController::CommitWithChar(ITfContext* pContext, wchar_t appendChar) 
 
     // Reset engine state AFTER the edit session completes (synchronous)
     engine_->Reset();
+    if (appendChar == L'.') {
+        engine_->SetPrecedingBoundary(L'.');
+    } else {
+        engine_->SetPrecedingBoundary(L'\0');
+    }
     digitLedWord_ = false;
     ClearMacroTrackingAfterCommit();
 

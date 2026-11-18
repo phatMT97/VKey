@@ -169,6 +169,11 @@ namespace {
     }
 }
 
+[[nodiscard]] static bool IsBareModifierVk(DWORD vk) noexcept {
+    const uint32_t canonical = CanonicalModifierVk(vk);
+    return IsModifierKey(canonical) || canonical == VK_CAPITAL;
+}
+
 // Pack the cached modifier booleans into a HotkeyRegistry-style bitmask.
 [[nodiscard]] uint32_t ComputeModMask(bool ctrl, bool shift, bool alt, bool win) noexcept {
     uint32_t mask = 0;
@@ -1970,8 +1975,15 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
         bool restored = CommitComposition(
             dropLexicon ? CommitMode::NoLexicon : CommitMode::Normal);
 
-        if (IsCaretNavigationKey(vkCode) && engine_) {
-            engine_->ClearContext();
+        if (engine_) {
+            const wchar_t boundaryChar =
+                ((vkCode == VK_OEM_PERIOD && !cachedShift) || vkCode == VK_DECIMAL)
+                    ? L'.'
+                    : L'\0';
+            engine_->SetPrecedingBoundary(boundaryChar);
+            if (IsCaretNavigationKey(vkCode)) {
+                engine_->ClearContext();
+            }
         }
 
         if (!savedMacroBuffer.empty()) {
@@ -2079,6 +2091,14 @@ HookEngine::KeyOutcome HookEngine::DispatchKeyAction(DWORD vkCode, bool cachedSh
         HOOK_LOG(L"  re-inject BS (engine empty, synthPending=%d)", dispatcher_.SynthEventsPending());
         InjectKey(VK_BACK);
         return KeyOutcome::Eat;
+    }
+
+    if (engine_) {
+        if ((vkCode == VK_OEM_PERIOD && !cachedShift) || vkCode == VK_DECIMAL) {
+            engine_->SetPrecedingBoundary(L'.');
+        } else if (!IsBareModifierVk(vkCode)) {
+            engine_->SetPrecedingBoundary(L'\0');
+        }
     }
 
     return KeyOutcome::Pass;

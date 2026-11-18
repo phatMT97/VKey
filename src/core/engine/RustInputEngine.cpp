@@ -75,6 +75,11 @@ struct EngineApi {
     void (*user_dictionary_destroy)(VKeyUserDictionary*) = nullptr;
     bool (*set_user_dictionary)(VKeyEngine*, const VKeyUserDictionary*) = nullptr;
 #endif
+#if VKEY_ENGINE_ABI_VERSION >= 11u
+    // ABI v11: preceding boundary metadata.
+    void (*set_preceding_boundary)(VKeyEngine*, uint32_t) = nullptr;
+    uint32_t (*preceding_boundary)(const VKeyEngine*) = nullptr;
+#endif
     bool ok = false;
     std::wstring reason;  // diagnostic when !ok; empty when ok
 };
@@ -141,6 +146,12 @@ const EngineApi& Api() {
         a.set_user_dictionary = Resolve<decltype(a.set_user_dictionary)>(
             lib, "vkey_engine_set_user_dictionary");
 #endif
+#if VKEY_ENGINE_ABI_VERSION >= 11u
+        a.set_preceding_boundary = Resolve<decltype(a.set_preceding_boundary)>(
+            lib, "vkey_engine_set_preceding_boundary");
+        a.preceding_boundary = Resolve<decltype(a.preceding_boundary)>(
+            lib, "vkey_engine_preceding_boundary");
+#endif
         const bool symbolsResolved =
             a.create && a.destroy && a.reset && a.clear_context && a.push_char && a.backspace &&
 #if VKEY_ENGINE_ABI_VERSION >= 9u
@@ -154,6 +165,9 @@ const EngineApi& Api() {
 #if VKEY_ENGINE_ABI_VERSION >= 8u
             && a.user_dictionary_create_utf16 && a.user_dictionary_destroy &&
             a.set_user_dictionary
+#endif
+#if VKEY_ENGINE_ABI_VERSION >= 11u
+            && a.set_preceding_boundary && a.preceding_boundary
 #endif
             ;
         if (!symbolsResolved) {
@@ -759,6 +773,25 @@ void RustInputEngine::ClearContext() noexcept {
     if (handle_) {
         Api().clear_context(static_cast<VKeyEngine*>(handle_));
     }
+}
+
+void RustInputEngine::SetPrecedingBoundary(wchar_t boundary) {
+#if VKEY_ENGINE_ABI_VERSION >= 11u
+    if (handle_ && Api().set_preceding_boundary) {
+        Api().set_preceding_boundary(static_cast<VKeyEngine*>(handle_), static_cast<uint32_t>(boundary));
+    }
+#else
+    (void)boundary;
+#endif
+}
+
+wchar_t RustInputEngine::PrecedingBoundary() const {
+#if VKEY_ENGINE_ABI_VERSION >= 11u
+    if (handle_ && Api().preceding_boundary) {
+        return static_cast<wchar_t>(Api().preceding_boundary(static_cast<VKeyEngine*>(handle_)));
+    }
+#endif
+    return L'\0';
 }
 
 bool RustInputEngine::HasActiveQuickConsonant() const {

@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /* Bump when the ABI changes; check against vkey_engine_abi_version(). */
-#define VKEY_ENGINE_ABI_VERSION 10u
+#define VKEY_ENGINE_ABI_VERSION 11u
 
 /* ABI v6 runtime-artifact identity status. */
 #define VKEY_ENGINE_RUNTIME_OK                   0u
@@ -43,6 +43,9 @@ extern "C" {
 #define VKEY_FEAT_SPELL_CHECK          (1u << 4)
 #define VKEY_FEAT_ALLOW_ENGLISH_BYPASS (1u << 5)
 #define VKEY_FEAT_ALLOW_ZWJF           (1u << 6)
+/* Together with SPELL_CHECK, enables bounded dictionary-backed vowel-order
+ * repair at commit. Exact known/user words and explicit input guards win;
+ * unknown intentional spellings may need user-dictionary protection. */
 #define VKEY_FEAT_SPELL_SUGGEST        (1u << 7)
 /* Opt out of commit-time raw restoration; older callers retain the default. */
 #define VKEY_FEAT_DISABLE_AUTO_RESTORE (1u << 8)
@@ -279,6 +282,18 @@ void vkey_user_dictionary_destroy(VKeyUserDictionary *dictionary);
  * so the caller may destroy `dictionary` immediately. */
 bool vkey_engine_set_user_dictionary(
     VKeyEngine *engine, const VKeyUserDictionary *dictionary);
+
+/* --- ABI v11: preceding boundary metadata ---------------------------------
+ * Added in ABI 11. Present only when vkey_engine_abi_version() >= 11. */
+
+/* Sets or clears the boundary character immediately preceding the caret
+ * (e.g. '.' for identifier/domain protection like "draw.io").
+ * Pass 0 to clear. */
+void vkey_engine_set_preceding_boundary(VKeyEngine *engine, uint32_t codepoint);
+
+/* Returns the active preceding boundary character immediately preceding the
+ * caret, or 0 if none is set. */
+uint32_t vkey_engine_preceding_boundary(const VKeyEngine *engine);
 
 #ifdef __cplusplus
 } /* extern "C" */

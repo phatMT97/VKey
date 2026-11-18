@@ -43,6 +43,14 @@ public:
 
     virtual void ClearContext() noexcept {}
 
+    /// Sets or clears the boundary character immediately preceding the caret
+    /// (e.g. '.' for identifier/domain protection like "draw.io").
+    virtual void SetPrecedingBoundary(wchar_t boundary) { (void)boundary; }
+
+    /// Returns the active preceding boundary character immediately preceding the
+    /// caret, or L'\0' if none is set.
+    [[nodiscard]] virtual wchar_t PrecedingBoundary() const { return L'\0'; }
+
     /// Get number of characters in current composition
     [[nodiscard]] virtual size_t Count() const = 0;
 

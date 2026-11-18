@@ -1014,9 +1014,9 @@ TEST_F(RustInputEngineTest, TestSoafUserDictionary) {
         RustInputEngine engine(config);
         for (wchar_t c : std::wstring_view(L"soaf")) engine.PushChar(c);
         EXPECT_EQ(engine.Peek(), L"so\u00e0");
-        EXPECT_EQ(engine.Commit(), L"so\u00e0");
+        EXPECT_EQ(engine.Commit(), L"s\u00e0o");
         const bool correctedWithoutDict = engine.LastCommitWasCorrected();
-        EXPECT_FALSE(correctedWithoutDict);
+        EXPECT_TRUE(correctedWithoutDict);
     }
     {
         RustInputEngine engine(config);
@@ -1094,6 +1094,60 @@ TEST_F(RustInputEngineTest, ClearContextCallableAndTypingEngineNoOpHarmless) {
     EXPECT_EQ(rustInterface->Peek(), L"â");
     EXPECT_EQ(rustInterface->Commit(), L"â");
     rustInterface->ClearContext();
+}
+
+TEST_F(RustInputEngineTest, PrecedingBoundaryProtectsDottedIdentifier) {
+    TypingConfig config;
+    config.inputMethod = InputMethod::Telex;
+    config.spellCheckEnabled = true;
+    config.spellSuggestEnabled = true;
+
+    // 1. TypingEngine fallback / no-op interface verification
+    TypingEngine cppEngine(config);
+    IInputEngine* cppInterface = &cppEngine;
+    EXPECT_EQ(cppInterface->PrecedingBoundary(), L'\0');
+    cppInterface->SetPrecedingBoundary(L'.');
+    EXPECT_EQ(cppInterface->PrecedingBoundary(), L'.');
+    cppInterface->ClearContext();
+    EXPECT_EQ(cppInterface->PrecedingBoundary(), L'\0');
+
+    // 2. RustInputEngine: in isolation, "io" is an invalid Vietnamese syllable and
+    // anagram solver corrects it to "oi".
+    {
+        RustInputEngine engine(config);
+        EXPECT_EQ(engine.PrecedingBoundary(), L'\0');
+        for (wchar_t c : std::wstring_view(L"io")) engine.PushChar(c);
+        EXPECT_EQ(engine.Peek(), L"io");
+        EXPECT_EQ(engine.Commit(), L"oi");
+        EXPECT_TRUE(engine.LastCommitWasCorrected());
+    }
+
+    // 3. RustInputEngine: with preceding boundary '.', Gate 2 protects the token as
+    // an identifier suffix (e.g. "draw.io"), so "io" is preserved verbatim.
+    {
+        RustInputEngine engine(config);
+        engine.SetPrecedingBoundary(L'.');
+        EXPECT_EQ(engine.PrecedingBoundary(), L'.');
+        for (wchar_t c : std::wstring_view(L"io")) engine.PushChar(c);
+        EXPECT_EQ(engine.Peek(), L"io");
+        EXPECT_EQ(engine.Commit(), L"io");
+        EXPECT_FALSE(engine.LastCommitWasCorrected());
+        // Commit automatically clears preceding boundary.
+        EXPECT_EQ(engine.PrecedingBoundary(), L'\0');
+    }
+
+    // 4. Resetting or clearing boundary explicitly
+    {
+        RustInputEngine engine(config);
+        engine.SetPrecedingBoundary(L'.');
+        EXPECT_EQ(engine.PrecedingBoundary(), L'.');
+        engine.SetPrecedingBoundary(L'\0');
+        EXPECT_EQ(engine.PrecedingBoundary(), L'\0');
+
+        engine.SetPrecedingBoundary(L'.');
+        engine.ClearContext();
+        EXPECT_EQ(engine.PrecedingBoundary(), L'\0');
+    }
 }
 
 #endif

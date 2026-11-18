@@ -75,6 +75,12 @@ public:
     /// Commit with trailing character (e.g., space)
     void CommitWithChar(ITfContext* pContext, wchar_t appendChar);
 
+    void SetPrecedingBoundary(wchar_t boundary) {
+        if (engine_) {
+            engine_->SetPrecedingBoundary(boundary);
+        }
+    }
+
     /// Esc-restore: end composition with the user's RAW keys (case-preserved),
     /// not the Vietnamese form. Returns false if engine has no raw input —
     /// caller should fall back to standard Commit() flow. Edit session

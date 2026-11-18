@@ -2172,6 +2172,7 @@ void TypingEngine::Reset() {
     engProt_.Reset();
     provisionalYeRawCount_ = 0;
     provisionalYeUppercase_ = 0;
+    precedingBoundary_ = L'\0';
 }
 
 wchar_t TypingEngine::FindUserDefinedCombiningModifierKey(wchar_t base, Modifier mod) const {

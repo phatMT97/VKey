@@ -413,6 +413,7 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
     // Modifiers -> commit and pass through
     if (ctrl || alt || win) {
         pEngineController_->ResetMacroUndo();
+        pEngineController_->SetPrecedingBoundary(L'\0');
         if (pEngineController_->HasEngineBuffer()) {
             TSF_LOG(L"OnTestKeyDown: modifier chord vk=0x%02X with live buffer → Commit",
                     static_cast<UINT>(wParam));
@@ -618,6 +619,10 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
         if (IsCaretNavigationKey(vk)) {
             pEngineController_->ClearContext();
         }
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if ((vk == VK_OEM_PERIOD && !shift) || vk == VK_DECIMAL) {
+            pEngineController_->SetPrecedingBoundary(L'.');
+        }
         *pfEaten = FALSE;
         return S_OK;
     }
@@ -732,6 +737,7 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
     // classic hosts: test phase already committed, buffer is empty.
     if (ctrl || alt || win) {
         pEngineController_->ResetMacroUndo();
+        pEngineController_->SetPrecedingBoundary(L'\0');
         if (pEngineController_->HasEngineBuffer()) {
             TSF_LOG(L"OnKeyDown: modifier chord vk=0x%02X with live buffer → Commit",
                     static_cast<UINT>(wParam));
@@ -935,6 +941,10 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
         if (IsCaretNavigationKey(vk)) {
             pEngineController_->ClearContext();
         }
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if ((vk == VK_OEM_PERIOD && !shift) || vk == VK_DECIMAL) {
+            pEngineController_->SetPrecedingBoundary(L'.');
+        }
         // Reaching here with a live buffer means the host skipped OnTestKeyDown
         // (Chromium family) — in every other host the test phase already
         // committed, so the buffer is empty and this branch never runs there.
@@ -974,6 +984,12 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
         lastPassthroughBsObservedVk_ = 0;
         if (IsCaretNavigationKey(vk)) {
             pEngineController_->ClearContext();
+        }
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if ((vk == VK_OEM_PERIOD && !shift) || vk == VK_DECIMAL) {
+            pEngineController_->SetPrecedingBoundary(L'.');
+        } else if (!IsBareModifierKey(vk)) {
+            pEngineController_->SetPrecedingBoundary(L'\0');
         }
         *pfEaten = FALSE;
         return S_OK;

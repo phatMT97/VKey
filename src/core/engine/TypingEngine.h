@@ -111,6 +111,9 @@ public:
     [[nodiscard]] const std::wstring& Peek() const override;
     [[nodiscard]] std::wstring Commit() override;
     void Reset() override;
+    void ClearContext() noexcept override { precedingBoundary_ = L'\0'; }
+    void SetPrecedingBoundary(wchar_t boundary) override { precedingBoundary_ = boundary; }
+    [[nodiscard]] wchar_t PrecedingBoundary() const override { return precedingBoundary_; }
     [[nodiscard]] size_t Count() const override { return states_.size(); }
     [[nodiscard]] bool HasActiveQuickConsonant() const override { return qc_.hasActive(); }
     [[nodiscard]] bool SeedFromText(const std::wstring& text) override;
@@ -366,6 +369,7 @@ private:
     EngineRule::VniCircumflexProposal vniCircumflexProposal_{*this};
     EngineRule::VniHornProposal vniHornProposal_{*this};
     EngineRule::VniBreveProposal vniBreveProposal_{*this};
+    wchar_t precedingBoundary_ = L'\0';
 };
 
 }  // namespace NextKey
