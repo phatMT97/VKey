@@ -43,12 +43,17 @@ public:
 
     virtual void ClearContext() noexcept {}
 
-    /// Sets or clears the boundary character immediately preceding the caret
-    /// (e.g. '.' for identifier/domain protection like "draw.io").
+    /// Sets or clears the boundary character that immediately preceded the active
+    /// composition (i.e. at the start of the current composing token/word, NOT
+    /// immediately preceding the caret mid-composition).
+    ///
+    /// For example, '.' protects identifier/domain suffixes like "draw.io" or "schema.bans"
+    /// by disabling Vietnamese composition and autocorrection for the entire token.
+    /// The host must retain this boundary throughout the entire composition of the token.
     virtual void SetPrecedingBoundary(wchar_t boundary) { (void)boundary; }
 
-    /// Returns the active preceding boundary character immediately preceding the
-    /// caret, or L'\0' if none is set.
+    /// Returns the active boundary character immediately preceding the start of the
+    /// active composition, or L'\0' if none is set.
     [[nodiscard]] virtual wchar_t PrecedingBoundary() const { return L'\0'; }
 
     /// Get number of characters in current composition

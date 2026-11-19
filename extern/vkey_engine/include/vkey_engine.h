@@ -286,13 +286,31 @@ bool vkey_engine_set_user_dictionary(
 /* --- ABI v11: preceding boundary metadata ---------------------------------
  * Added in ABI 11. Present only when vkey_engine_abi_version() >= 11. */
 
-/* Sets or clears the boundary character immediately preceding the caret
- * (e.g. '.' for identifier/domain protection like "draw.io").
- * Pass 0 to clear. */
+/* Sets or clears the boundary character that immediately preceded the active
+ * composition (i.e. at the start of the current composing token/word, NOT
+ * immediately preceding the caret mid-composition).
+ *
+ * For example, pass '.' when the active token immediately follows a dot boundary
+ * without whitespace (e.g. "draw.io" or "schema.bans"). This disables Vietnamese
+ * composition and spell correction for the entire token so identifier / domain
+ * suffixes stay literal.
+ *
+ * Host lifecycle contract:
+ * - The host sets this boundary once before or when starting a new composition
+ *   token based on the separator preceding the token start.
+ * - The host MUST retain this boundary value throughout the entire composition
+ *   of the token. Do NOT update or clear it per-caret as keystrokes are appended;
+ *   clearing it mid-composition (e.g. after the first letter) causes subsequent
+ *   keys like 's' in "bans" to compose as Vietnamese ("bán") instead of staying literal.
+ * - The engine automatically resets this boundary to 0 when the composition ends
+ *   via vkey_engine_commit_utf16(), vkey_engine_reset(), or
+ *   vkey_engine_clear_context().
+ * - Pass 0 to clear explicitly (e.g. when the caret moves away from the boundary
+ *   before a new composition begins). */
 void vkey_engine_set_preceding_boundary(VKeyEngine *engine, uint32_t codepoint);
 
-/* Returns the active preceding boundary character immediately preceding the
- * caret, or 0 if none is set. */
+/* Returns the active boundary character immediately preceding the start of the
+ * active composition, or 0 if none is set. */
 uint32_t vkey_engine_preceding_boundary(const VKeyEngine *engine);
 
 #ifdef __cplusplus
