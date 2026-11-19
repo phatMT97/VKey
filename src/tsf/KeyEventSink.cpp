@@ -413,12 +413,12 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
     // Modifiers -> commit and pass through
     if (ctrl || alt || win) {
         pEngineController_->ResetMacroUndo();
-        pEngineController_->SetPrecedingBoundary(L'\0');
         if (pEngineController_->HasEngineBuffer()) {
             TSF_LOG(L"OnTestKeyDown: modifier chord vk=0x%02X with live buffer → Commit",
                     static_cast<UINT>(wParam));
             pEngineController_->Commit(pContext);
         }
+        pEngineController_->SetPrecedingBoundary(L'\0');
         *pfEaten = FALSE;
         return S_OK;
     }
@@ -627,8 +627,18 @@ HRESULT KeyEventSink::OnTestKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPA
         return S_OK;
     }
 
-    if (!wantKey && IsCaretNavigationKey(vk)) {
-        pEngineController_->ClearContext();
+    if (!wantKey) {
+        if (IsCaretNavigationKey(vk)) {
+            pEngineController_->ClearContext();
+        }
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        if ((vk == VK_OEM_PERIOD && !shift) || vk == VK_DECIMAL) {
+            pEngineController_->SetPrecedingBoundary(L'.');
+        } else if (!IsBareModifierKey(vk)) {
+            pEngineController_->SetPrecedingBoundary(L'\0');
+        }
+        *pfEaten = FALSE;
+        return S_OK;
     }
 
     *pfEaten = wantKey ? TRUE : FALSE;
@@ -737,12 +747,12 @@ HRESULT KeyEventSink::OnKeyDownImpl(ITfContext* pContext, WPARAM wParam, LPARAM 
     // classic hosts: test phase already committed, buffer is empty.
     if (ctrl || alt || win) {
         pEngineController_->ResetMacroUndo();
-        pEngineController_->SetPrecedingBoundary(L'\0');
         if (pEngineController_->HasEngineBuffer()) {
             TSF_LOG(L"OnKeyDown: modifier chord vk=0x%02X with live buffer → Commit",
                     static_cast<UINT>(wParam));
             pEngineController_->Commit(pContext);
         }
+        pEngineController_->SetPrecedingBoundary(L'\0');
         *pfEaten = FALSE;
         return S_OK;
     }

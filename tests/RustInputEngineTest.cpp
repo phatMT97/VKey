@@ -1148,6 +1148,26 @@ TEST_F(RustInputEngineTest, PrecedingBoundaryProtectsDottedIdentifier) {
         engine.ClearContext();
         EXPECT_EQ(engine.PrecedingBoundary(), L'\0');
     }
+
+    // 5. Modifier key ordering:
+    // Committing first retains identifier protection (e.g. draw.io + Ctrl commits "io").
+    // Clearing the boundary before commit removes protection, causing "io" to commit as "oi".
+    {
+        RustInputEngine engine(config);
+        engine.SetPrecedingBoundary(L'.');
+        for (wchar_t c : std::wstring_view(L"io")) engine.PushChar(c);
+        EXPECT_EQ(engine.Commit(), L"io");
+        EXPECT_FALSE(engine.LastCommitWasCorrected());
+        engine.SetPrecedingBoundary(L'\0');
+    }
+    {
+        RustInputEngine engine(config);
+        engine.SetPrecedingBoundary(L'.');
+        for (wchar_t c : std::wstring_view(L"io")) engine.PushChar(c);
+        engine.SetPrecedingBoundary(L'\0');
+        EXPECT_EQ(engine.Commit(), L"oi");
+        EXPECT_TRUE(engine.LastCommitWasCorrected());
+    }
 }
 
 #endif
